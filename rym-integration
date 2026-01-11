@@ -1,0 +1,1077 @@
+// NAME: RateYourMusic Integration
+// AUTHOR: yusufaf
+// VERSION: 0.1.0
+// DESCRIPTION: Display RateYourMusic ratings, genres, and metadata for your Spotify albums
+
+//#region Type Definitions
+
+/**
+ * @typedef {Object} AlbumInfo
+ * @property {string} artist - Primary artist name
+ * @property {string} album - Album name
+ * @property {string} albumUri - Spotify album URI
+ * @property {number|null} releaseDate - Release year
+ * @property {string|null} albumType - Spotify album type: "album", "single", "compilation"
+ * @property {number|null} totalTracks - Total track count
+ */
+
+/**
+ * @typedef {Object} YearRank
+ * @property {string} rank - Rank number (may include commas)
+ * @property {string} year - Year of ranking
+ */
+
+/**
+ * @typedef {Object} RYMAlbumData
+ * @property {string|null} rating - Average rating (e.g., "3.64")
+ * @property {string|null} numRatings - Number of ratings with commas
+ * @property {YearRank|null} yearRank - Year-specific ranking
+ * @property {string|null} overallRank - Overall ranking number
+ * @property {string[]} genres - Array of genre names
+ * @property {string[]} descriptors - Array of descriptor tags
+ * @property {string} url - RYM album page URL
+ */
+
+/**
+ * @typedef {Object} CachedData
+ * @property {RYMAlbumData} data - Cached album data
+ * @property {number} timestamp - Cache timestamp in milliseconds
+ */
+
+//#endregion
+
+//#region Constants
+
+/** CORS proxy URL - using your personal Vercel proxy */
+const CORS_PROXY = 'https://spicetify-rym.vercel.app/api/proxy?url=';
+
+/** Cache duration in milliseconds (24 hours) */
+const CACHE_DURATION = 24 * 60 * 60 * 1000;
+
+/** Minimum similarity score for search match (0.0 - 1.0) */
+const MIN_MATCH_SCORE = 0.6;
+
+/** Artist name weight in similarity calculation */
+const ARTIST_WEIGHT = 0.4;
+
+/** Album name weight in similarity calculation */
+const ALBUM_WEIGHT = 0.6;
+
+/** Maximum number of genres to display */
+const MAX_GENRES = 5;
+
+/** Maximum number of descriptors to display */
+const MAX_DESCRIPTORS = 8;
+
+/** Maximum number of descriptors to parse */
+const MAX_DESCRIPTORS_PARSE = 10;
+
+// CSS Selectors
+/** Selector for album page average rating */
+const SELECTOR_AVG_RATING = '.avg_rating';
+
+/** Selector for number of ratings */
+const SELECTOR_NUM_RATINGS = '.num_ratings';
+
+/** Selector for info header cells */
+const SELECTOR_INFO_HDR = 'th.info_hdr';
+
+/** Selector for primary genres */
+const SELECTOR_PRIMARY_GENRES = '.release_pri_genres a.genre';
+
+/** Selector for primary descriptors */
+const SELECTOR_PRIMARY_DESCRIPTORS = '.release_pri_descriptors';
+
+/** Selector for search result containers */
+const SELECTOR_SEARCH_RESULTS = '.infobox';
+
+/** Selector for search result links */
+const SELECTOR_SEARCH_LINK = 'a.searchpage';
+
+/** Selector for Spotify link button on RYM album pages */
+const SELECTOR_SPOTIFY_LINK = 'a.ui_media_link_btn_spotify';
+
+/** Selector for right sidebar content area (where About the artist, Credits, Next in queue are) */
+const SELECTOR_RIGHT_SIDEBAR_CONTENT = '.main-nowPlayingView-nowPlayingGrid';
+
+/** Alternative selector for right sidebar */
+const SELECTOR_RIGHT_SIDEBAR_ALT = '[data-testid="NPV_Panel_OpenDiv"]';
+
+/** RYM base URL */
+const RYM_BASE_URL = 'https://rateyourmusic.com';
+
+/** Container element ID */
+const CONTAINER_ID = 'rym-container';
+
+//#endregion
+
+//#region State
+
+/** @type {Map<string, CachedData>} */
+const albumCache = new Map();
+
+/** @type {string|null} Currently displayed album URI */
+let currentAlbumUri = null;
+
+//#endregion
+
+//#region Cache Management
+
+/**
+ * Retrieves cached album data if valid
+ * @param {string} albumUri - Spotify album URI
+ * @returns {RYMAlbumData|null} Cached data or null if not found/expired
+ */
+function getCachedData(albumUri) {
+  const cached = albumCache.get(albumUri);
+  if (!cached) {
+    return null;
+  }
+
+  if (Date.now() - cached.timestamp > CACHE_DURATION) {
+    albumCache.delete(albumUri);
+    return null;
+  }
+
+  return cached.data;
+}
+
+/**
+ * Stores album data in cache with timestamp
+ * @param {string} albumUri - Spotify album URI
+ * @param {RYMAlbumData} data - Album data to cache
+ * @returns {void}
+ */
+function setCachedData(albumUri, data) {
+  albumCache.set(albumUri, {
+    data,
+    timestamp: Date.now()
+  });
+}
+
+//#endregion
+
+//#region Spotify Utilities
+
+/**
+ * Extracts Spotify album ID from Spotify URI
+ * @param {string} uri - Spotify URI (e.g., "spotify:album:ABC123")
+ * @returns {string|null} Album ID or null
+ */
+function extractSpotifyIdFromUri(uri) {
+  if (!uri) {
+    return null;
+  }
+  const parts = uri.split(':');
+  return parts.length >= 3 ? parts[2] : null;
+}
+
+/**
+ * Extracts Spotify album ID from RYM album page
+ * @param {Document} doc - Parsed HTML document
+ * @returns {string|null} Spotify album ID or null
+ */
+function extractSpotifyIdFromRYM(doc) {
+  const spotifyLink = doc.querySelector(SELECTOR_SPOTIFY_LINK);
+  if (!spotifyLink) {
+    return null;
+  }
+
+  const href = spotifyLink.getAttribute('href');
+  if (!href) {
+    return null;
+  }
+
+  // Extract ID from URL: https://open.spotify.com/album/ABC123
+  const match = href.match(/album\/([a-zA-Z0-9]+)/);
+  return match ? match[1] : null;
+}
+
+//#endregion
+
+//#region String Utilities
+
+/**
+ * Normalizes string for comparison (lowercase, removes special chars)
+ * @param {string} str - Input string
+ * @returns {string} Normalized string
+ */
+function normalizeString(str) {
+  return str
+    .toLowerCase()
+    .replace(/[^\w\s]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Slugifies string for RYM URLs (lowercase, hyphens, remove special chars)
+ * @param {string} str - Input string
+ * @returns {string} Slugified string
+ */
+function slugify(str) {
+  return str
+    .toLowerCase()
+    .trim()
+    .replace(/[^\w\s-]/g, '')
+    .replace(/[\s_]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+/**
+ * Determines RYM release type from Spotify metadata
+ * @param {AlbumInfo} albumInfo - Album information from Spotify
+ * @returns {string} RYM release type: "album", "ep", "single", "comp", "mixtape"
+ */
+function determineRYMReleaseType(albumInfo) {
+  const { album, albumType, totalTracks } = albumInfo;
+  const albumLower = (album || '').toLowerCase();
+
+  // Priority 1: Album name patterns (highest confidence)
+  if (albumLower.includes('mixtape') || albumLower.includes('mix tape')) {
+    return 'mixtape';
+  }
+  if (albumLower.match(/\bep\b|e\.p\./i)) {
+    return 'ep';
+  }
+  if (albumLower.includes('compilation') || albumLower.includes('greatest hits')) {
+    return 'comp';
+  }
+
+  // Priority 2: Spotify album_type + track count
+  if (albumType === 'compilation') {
+    return 'comp';
+  }
+
+  if (albumType === 'single') {
+    if (totalTracks && totalTracks >= 4 && totalTracks <= 6) {
+      return 'ep';
+    }
+    return 'single';
+  }
+
+  if (albumType === 'album') {
+    if (totalTracks && totalTracks >= 4 && totalTracks <= 6) {
+      return 'ep';
+    }
+    return 'album';
+  }
+
+  // Priority 3: Default fallback
+  return 'album';
+}
+
+/**
+ * Calculates similarity score between two strings (0.0 - 1.0)
+ * @param {string} str1 - First string
+ * @param {string} str2 - Second string
+ * @returns {number} Similarity score
+ */
+function stringSimilarity(str1, str2) {
+  const s1 = normalizeString(str1);
+  const s2 = normalizeString(str2);
+
+  if (s1 === s2) {
+    return 1.0;
+  }
+  if (s1.includes(s2) || s2.includes(s1)) {
+    return 0.8;
+  }
+
+  // Character overlap ratio
+  const chars1 = new Set(s1.split(''));
+  const chars2 = new Set(s2.split(''));
+  const intersection = new Set([...chars1].filter(x => chars2.has(x)));
+  const union = new Set([...chars1, ...chars2]);
+
+  return intersection.size / union.size;
+}
+
+//#endregion
+
+//#region Spotify Integration
+
+/**
+ * Extracts current album info from Spicetify player
+ * @returns {AlbumInfo|null} Album information or null
+ */
+function getCurrentAlbumInfo() {
+  const data = Spicetify.Player.data;
+  if (!data || !data.item) {
+    return null;
+  }
+
+  return {
+    artist: data.item.artists?.[0]?.name || '',
+    album: data.item.album?.name || '',
+    albumUri: data.item.album?.uri || '',
+    releaseDate: data.item.album?.date?.year || null,
+    albumType: data.item.album?.type || null,
+    totalTracks: data.item.album?.total_tracks || null
+  };
+}
+
+//#endregion
+
+//#region RYM Data Fetching
+
+/**
+ * Searches RYM for album and returns best match URL
+ * @param {string} artist - Artist name
+ * @param {string} album - Album name
+ * @param {string|null} spotifyId - Spotify album ID for verification
+ * @returns {Promise<string|null>} Album URL or null if not found
+ */
+async function searchRYM(artist, album, spotifyId = null) {
+  try {
+    const searchQuery = `${artist} ${album}`.trim();
+    const searchUrl = `${RYM_BASE_URL}/search?searchterm=${encodeURIComponent(searchQuery)}&searchtype=l`;
+    const proxiedUrl = CORS_PROXY + encodeURIComponent(searchUrl);
+
+    console.log('RYM Extension: Searching for', searchQuery);
+
+    const response = await fetch(proxiedUrl);
+    if (!response.ok) {
+      console.error('RYM Extension: Search request failed', response.status);
+      return null;
+    }
+
+    const html = await response.text();
+
+    // Detect Cloudflare challenge page
+    if (html.includes('Just a moment') || html.includes('challenge-platform') || html.includes('cf_chl_opt')) {
+      console.error('RYM Extension: Cloudflare blocked search request.');
+      console.error('RYM Extension: Try switching CORS proxy or use a backend proxy server.');
+      return null;
+    }
+
+    return parseSearchResults(html, artist, album, spotifyId);
+  } catch (error) {
+    console.error('RYM Extension: Search failed', error);
+    return null;
+  }
+}
+
+/**
+ * Parses search results HTML and finds best album match
+ * @param {string} html - Search results HTML
+ * @param {string} targetArtist - Target artist name
+ * @param {string} targetAlbum - Target album name
+ * @param {string|null} spotifyId - Spotify album ID for verification
+ * @returns {Promise<string|null>} Best match URL or null
+ */
+async function parseSearchResults(html, targetArtist, targetAlbum, spotifyId = null) {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, 'text/html');
+
+  const results = doc.querySelectorAll(SELECTOR_SEARCH_RESULTS);
+
+  if (!results || results.length === 0) {
+    console.log('RYM Extension: No search results found');
+    return null;
+  }
+
+  // If we have a Spotify ID, try to find exact match first
+  if (spotifyId) {
+    for (const result of results) {
+      const titleLink = result.querySelector(SELECTOR_SEARCH_LINK);
+      if (!titleLink) {
+        continue;
+      }
+
+      const href = titleLink.getAttribute('href');
+      if (!href) {
+        continue;
+      }
+
+      const albumUrl = href.startsWith('http') ? href : `${RYM_BASE_URL}${href}`;
+
+      // Fetch album page to check Spotify ID
+      const verificationResult = await verifySpotifyMatch(albumUrl, spotifyId);
+      if (verificationResult) {
+        console.log('RYM Extension: Found perfect match via Spotify ID verification');
+        return albumUrl;
+      }
+    }
+
+    console.log('RYM Extension: No Spotify ID match found, falling back to fuzzy matching');
+  }
+
+  // Fall back to fuzzy matching
+  let bestMatch = null;
+  let bestScore = 0;
+
+  for (const result of results) {
+    const titleLink = result.querySelector(SELECTOR_SEARCH_LINK);
+    if (!titleLink) {
+      continue;
+    }
+
+    const fullText = titleLink.textContent || '';
+    const href = titleLink.getAttribute('href');
+
+    // RYM format: "Artist - Album"
+    const parts = fullText.split(' - ');
+    if (parts.length < 2) {
+      continue;
+    }
+
+    const resultArtist = parts[0].trim();
+    const resultAlbum = parts.slice(1).join(' - ').trim();
+
+    const artistScore = stringSimilarity(targetArtist, resultArtist);
+    const albumScore = stringSimilarity(targetAlbum, resultAlbum);
+    const totalScore = (artistScore * ARTIST_WEIGHT) + (albumScore * ALBUM_WEIGHT);
+
+    if (totalScore > bestScore) {
+      bestScore = totalScore;
+      bestMatch = href;
+    }
+  }
+
+  if (bestScore < MIN_MATCH_SCORE) {
+    console.log('RYM Extension: No good match found (best score:', bestScore, ')');
+    return null;
+  }
+
+  const albumUrl = bestMatch.startsWith('http')
+    ? bestMatch
+    : `${RYM_BASE_URL}${bestMatch}`;
+
+  console.log('RYM Extension: Found match with score', bestScore, '-', albumUrl);
+  return albumUrl;
+}
+
+/**
+ * Verifies if RYM album page matches Spotify album ID
+ * @param {string} albumUrl - RYM album page URL
+ * @param {string} spotifyId - Spotify album ID to verify
+ * @returns {Promise<boolean>} True if IDs match
+ */
+async function verifySpotifyMatch(albumUrl, spotifyId) {
+  try {
+    const proxiedUrl = CORS_PROXY + encodeURIComponent(albumUrl);
+    const response = await fetch(proxiedUrl);
+
+    if (!response.ok) {
+      return false;
+    }
+
+    const html = await response.text();
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+
+    const rymSpotifyId = extractSpotifyIdFromRYM(doc);
+
+    if (!rymSpotifyId) {
+      return false;
+    }
+
+    return rymSpotifyId === spotifyId;
+  } catch (error) {
+    console.error('RYM Extension: Spotify verification failed', error);
+    return false;
+  }
+}
+
+/**
+ * Fetches and parses RYM album page data
+ * @param {string} albumUrl - RYM album page URL
+ * @returns {Promise<RYMAlbumData|null>} Parsed album data or null
+ */
+async function fetchRYMAlbumData(albumUrl) {
+  try {
+    const proxiedUrl = CORS_PROXY + encodeURIComponent(albumUrl);
+
+    console.log('RYM Extension: Fetching album data from', albumUrl);
+
+    const response = await fetch(proxiedUrl);
+    if (!response.ok) {
+      console.error('RYM Extension: Album page request failed', response.status);
+      return null;
+    }
+
+    const html = await response.text();
+
+    // Detect Cloudflare challenge page
+    if (html.includes('Just a moment') || html.includes('challenge-platform') || html.includes('cf_chl_opt')) {
+      console.error('RYM Extension: Cloudflare blocked request. CORS proxy cannot bypass bot protection.');
+      console.error('RYM Extension: This extension requires a backend proxy server to work reliably.');
+      return null;
+    }
+
+    return parseRYMAlbumPage(html, albumUrl);
+  } catch (error) {
+    console.error('RYM Extension: Failed to fetch album page', error);
+    return null;
+  }
+}
+
+/**
+ * Parses RYM album page HTML to extract metadata
+ * @param {string} html - Album page HTML
+ * @param {string} albumUrl - Album page URL
+ * @returns {RYMAlbumData} Parsed album data
+ */
+function parseRYMAlbumPage(html, albumUrl) {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, 'text/html');
+
+  const rating = extractRating(doc);
+  const numRatings = extractNumRatings(doc);
+  const { yearRank, overallRank } = extractRankings(doc);
+  const genres = extractGenres(doc);
+  const descriptors = extractDescriptors(doc);
+
+  console.log('RYM Extension: Parsed data -', {
+    rating,
+    numRatings,
+    yearRank,
+    overallRank,
+    genresCount: genres.length,
+    descriptorsCount: descriptors.length
+  });
+
+  return {
+    rating,
+    numRatings,
+    yearRank,
+    overallRank,
+    genres,
+    descriptors,
+    url: albumUrl
+  };
+}
+
+/**
+ * Extracts rating from album page
+ * @param {Document} doc - Parsed HTML document
+ * @returns {string|null} Rating value
+ */
+function extractRating(doc) {
+  const ratingElement = doc.querySelector(SELECTOR_AVG_RATING);
+  return ratingElement?.textContent?.trim() || null;
+}
+
+/**
+ * Extracts number of ratings from album page
+ * @param {Document} doc - Parsed HTML document
+ * @returns {string|null} Number of ratings with commas
+ */
+function extractNumRatings(doc) {
+  const numRatingsElement = doc.querySelector(SELECTOR_NUM_RATINGS);
+  if (!numRatingsElement) {
+    return null;
+  }
+
+  const text = numRatingsElement.textContent || '';
+  const match = text.match(/[\d,]+/);
+  return match ? match[0] : null;
+}
+
+/**
+ * Extracts year and overall rankings from album page
+ * @param {Document} doc - Parsed HTML document
+ * @returns {{yearRank: YearRank|null, overallRank: string|null}} Rankings
+ */
+function extractRankings(doc) {
+  let yearRank = null;
+  let overallRank = null;
+
+  // Find all info header rows
+  const headers = doc.querySelectorAll(SELECTOR_INFO_HDR);
+
+  for (const header of headers) {
+    if (header.textContent?.includes('Ranked')) {
+      const rankedCell = header.nextElementSibling;
+      if (!rankedCell) {
+        continue;
+      }
+
+      const text = rankedCell.textContent || '';
+
+      // Extract year rank: "#98 for 2005"
+      const yearMatch = text.match(/#([\d,]+)\s+for\s+(\d{4})/);
+      if (yearMatch) {
+        yearRank = { rank: yearMatch[1], year: yearMatch[2] };
+      }
+
+      // Extract overall rank: "#5,948 overall"
+      const overallMatch = text.match(/#([\d,]+)\s+overall/);
+      if (overallMatch) {
+        overallRank = overallMatch[1];
+      }
+
+      break;
+    }
+  }
+
+  return { yearRank, overallRank };
+}
+
+/**
+ * Extracts primary genres from album page
+ * @param {Document} doc - Parsed HTML document
+ * @returns {string[]} Array of genre names
+ */
+function extractGenres(doc) {
+  const genreElements = doc.querySelectorAll(SELECTOR_PRIMARY_GENRES);
+  return Array.from(genreElements)
+    .map(g => g.textContent.trim())
+    .filter(g => g.length > 0)
+    .slice(0, MAX_GENRES);
+}
+
+/**
+ * Extracts descriptors from album page
+ * @param {Document} doc - Parsed HTML document
+ * @returns {string[]} Array of descriptor tags
+ */
+function extractDescriptors(doc) {
+  const descriptorsElement = doc.querySelector(SELECTOR_PRIMARY_DESCRIPTORS);
+  if (!descriptorsElement) {
+    return [];
+  }
+
+  const text = descriptorsElement.textContent || '';
+  return text
+    .split(',')
+    .map(d => d.trim())
+    .filter(d => d.length > 0)
+    .slice(0, MAX_DESCRIPTORS_PARSE);
+}
+
+//#endregion
+
+//#region UI Components
+
+/**
+ * Creates main RYM container element
+ * @returns {HTMLDivElement} Container element
+ */
+function createRYMContainer() {
+  const container = document.createElement('div');
+  container.id = CONTAINER_ID;
+  container.className = 'rym-extension-container';
+  return container;
+}
+
+/**
+ * Creates rating display HTML
+ * @param {RYMAlbumData} data - Album data
+ * @returns {string} Rating section HTML
+ */
+function createRatingDisplay(data) {
+  const yearRankHTML = data.yearRank
+    ? `<div class="rym-rank">#${data.yearRank.rank} for ${data.yearRank.year}</div>`
+    : '';
+
+  const overallRankHTML = data.overallRank
+    ? `<div class="rym-rank">#${data.overallRank} overall</div>`
+    : '';
+
+  return `
+    <div class="rym-rating-section">
+      <div class="rym-header">
+        <span class="rym-title">RateYourMusic</span>
+      </div>
+      ${data.rating ? `
+        <div class="rym-rating">
+          <span class="rating-value">${data.rating}</span>
+          <span class="rating-scale">/ 5.0</span>
+        </div>
+      ` : ''}
+      ${data.numRatings ? `<div class="rym-ratings-count">${data.numRatings} ratings</div>` : ''}
+      ${yearRankHTML}
+      ${overallRankHTML}
+    </div>
+  `;
+}
+
+/**
+ * Creates genres display HTML
+ * @param {string[]} genres - Array of genre names
+ * @returns {string} Genres section HTML or empty string
+ */
+function createGenresDisplay(genres) {
+  if (!genres || genres.length === 0) {
+    return '';
+  }
+
+  return `
+    <div class="rym-genres-section">
+      <h4>Genres</h4>
+      <div class="rym-genres">
+        ${genres.map(g => `<span class="genre-tag">${g}</span>`).join('')}
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * Creates descriptors display HTML
+ * @param {string[]} descriptors - Array of descriptor tags
+ * @returns {string} Descriptors section HTML or empty string
+ */
+function createDescriptorsDisplay(descriptors) {
+  if (!descriptors || descriptors.length === 0) {
+    return '';
+  }
+
+  return `
+    <div class="rym-descriptors-section">
+      <h4>Descriptors</h4>
+      <div class="rym-descriptors">
+        ${descriptors.slice(0, MAX_DESCRIPTORS).map(d => `<span class="descriptor-tag">${d}</span>`).join('')}
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * Injects RYM link into Spotify interface
+ * @param {string} artist - Artist name
+ * @param {string} album - Album name
+ * @returns {void}
+ */
+function injectRYMSearchLink(artist, album) {
+  // Try to find right sidebar content container
+  let targetElement = document.querySelector(SELECTOR_RIGHT_SIDEBAR_CONTENT);
+
+  // Fallback to alternative selector
+  if (!targetElement) {
+    targetElement = document.querySelector(SELECTOR_RIGHT_SIDEBAR_ALT);
+  }
+
+  if (!targetElement) {
+    console.warn('RYM Extension: Could not find target element for UI injection');
+    console.log('RYM Extension: Tried selectors:', SELECTOR_RIGHT_SIDEBAR_CONTENT, SELECTOR_RIGHT_SIDEBAR_ALT);
+    return;
+  }
+
+  const existing = document.getElementById(CONTAINER_ID);
+  if (existing) {
+    existing.remove();
+  }
+
+  // Get full album info for release type detection
+  const albumInfo = getCurrentAlbumInfo();
+  const releaseType = albumInfo ? determineRYMReleaseType(albumInfo) : 'album';
+
+  // Generate URLs
+  const artistSlug = slugify(artist);
+  const albumSlug = slugify(album);
+  const albumUrl = `${RYM_BASE_URL}/release/${releaseType}/${artistSlug}/${albumSlug}/`;
+  const searchUrl = `${RYM_BASE_URL}/search?searchterm=${encodeURIComponent(artist + ' ' + album)}`;
+
+  const container = createRYMContainer();
+  container.className = 'main-nowPlayingView-section main-nowPlayingView-rym';
+  container.innerHTML = `
+    <div class="main-nowPlayingView-sectionHeader">
+      <h2 class="encore-text-body-medium-bold" data-encore-id="text">
+        <div class="main-nowPlayingView-sectionHeaderText">RYM</div>
+      </h2>
+    </div>
+    <div class="rym-content">
+      <a href="${albumUrl}" target="_blank" rel="noopener noreferrer" class="rym-album-link">
+        View on RateYourMusic
+      </a>
+      <div class="rym-fallback">
+        <a href="${searchUrl}" target="_blank" rel="noopener noreferrer" class="rym-search-link">
+          Wrong page? Search RYM
+        </a>
+      </div>
+    </div>
+  `;
+
+  console.log('RYM Extension: Detected release type:', releaseType, 'for', album);
+  console.log('RYM Extension: Injecting into', targetElement);
+  targetElement.appendChild(container);
+}
+
+/**
+ * Shows loading state in UI
+ * @returns {void}
+ */
+function showLoadingState() {
+  const container = createRYMContainer();
+  container.innerHTML = '<div class="rym-loading">Loading RYM data...</div>';
+  injectContainer(container);
+}
+
+/**
+ * Shows "not found" state in UI
+ * @returns {void}
+ */
+function showNotFoundState() {
+  const container = createRYMContainer();
+  container.innerHTML = '<div class="rym-not-found">Album not found on RYM</div>';
+  injectContainer(container);
+}
+
+/**
+ * Shows error state in UI
+ * @returns {void}
+ */
+function showErrorState() {
+  const container = createRYMContainer();
+  container.innerHTML = '<div class="rym-error">Error loading RYM data</div>';
+  injectContainer(container);
+}
+
+/**
+ * Injects a container element into Spotify UI
+ * @param {HTMLDivElement} container - Container to inject
+ * @returns {void}
+ */
+function injectContainer(container) {
+  let targetElement = document.querySelector(SELECTOR_SIDEBAR_CONTENT);
+
+  if (!targetElement) {
+    targetElement = document.querySelector(SELECTOR_RIGHT_SIDEBAR);
+  }
+
+  if (targetElement) {
+    const existing = document.getElementById(CONTAINER_ID);
+    if (existing) {
+      existing.remove();
+    }
+    targetElement.appendChild(container);
+  }
+}
+
+/**
+ * Removes RYM UI from Spotify interface
+ * @returns {void}
+ */
+function removeRYMUI() {
+  const existing = document.getElementById(CONTAINER_ID);
+  if (existing) {
+    existing.remove();
+  }
+}
+
+//#endregion
+
+//#region Main Handler
+
+/**
+ * Handles album change events from Spotify
+ * @returns {void}
+ */
+function handleAlbumChange() {
+  const albumInfo = getCurrentAlbumInfo();
+
+  if (!albumInfo || !albumInfo.artist || !albumInfo.album) {
+    removeRYMUI();
+    return;
+  }
+
+  if (albumInfo.albumUri === currentAlbumUri) {
+    return;
+  }
+  currentAlbumUri = albumInfo.albumUri;
+
+  console.log('RYM Extension: Album changed to', albumInfo.artist, '-', albumInfo.album);
+  injectRYMSearchLink(albumInfo.artist, albumInfo.album);
+}
+
+//#endregion
+
+//#region Initialization
+
+/**
+ * Initializes the extension and sets up event listeners
+ * @returns {void}
+ */
+function initializeExtension() {
+  Spicetify.Player.addEventListener('songchange', handleAlbumChange);
+  handleAlbumChange();
+  console.log('RYM Extension: Initialized successfully');
+}
+
+//#endregion
+
+//#region Styles
+
+/**
+ * Injects CSS styles into the document head
+ * @returns {void}
+ */
+function injectStyles() {
+  const styleElement = document.createElement('style');
+  styleElement.textContent = `
+/* RateYourMusic Spicetify Extension Styles */
+
+.main-nowPlayingView-section.main-nowPlayingView-rym {
+  margin-top: 24px;
+  padding-top: 24px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.rym-content {
+  margin-top: 12px;
+}
+
+.rym-album-link {
+  color: var(--text-subdued, #a7a7a7);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 400;
+  transition: color 0.2s ease;
+  cursor: pointer;
+  display: block;
+}
+
+.rym-album-link:hover {
+  color: var(--text-base, #ffffff);
+  text-decoration: underline;
+}
+
+.rym-fallback {
+  margin-top: 8px;
+}
+
+.rym-search-link {
+  color: var(--text-subdued, #a7a7a7);
+  text-decoration: none;
+  font-size: 12px;
+  font-weight: 400;
+  opacity: 0.7;
+  transition: opacity 0.2s ease;
+  display: block;
+}
+
+.rym-search-link:hover {
+  opacity: 1;
+  text-decoration: underline;
+}
+
+.rym-rating-section {
+  margin-bottom: 16px;
+}
+
+.rym-rating {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  margin: 8px 0;
+}
+
+.rating-value {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-base, #ffffff);
+}
+
+.rating-scale {
+  font-size: 16px;
+  color: var(--text-subdued, #a7a7a7);
+}
+
+.rym-ratings-count {
+  font-size: 13px;
+  color: var(--text-subdued, #a7a7a7);
+}
+
+.rym-rank {
+  font-size: 13px;
+  color: var(--text-subdued, #a7a7a7);
+  margin-top: 4px;
+}
+
+.rym-genres-section,
+.rym-descriptors-section {
+  margin-top: 16px;
+}
+
+.rym-genres-section h4,
+.rym-descriptors-section h4 {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-subdued, #a7a7a7);
+  margin-bottom: 8px;
+}
+
+.rym-genres,
+.rym-descriptors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.genre-tag,
+.descriptor-tag {
+  display: inline-block;
+  padding: 4px 10px;
+  background: var(--background-elevated-highlight, #2a2a2a);
+  border-radius: 16px;
+  font-size: 12px;
+  color: var(--text-base, #ffffff);
+}
+
+.descriptor-tag {
+  background: var(--background-tinted-base, #242424);
+}
+
+.rym-link {
+  display: inline-block;
+  margin-top: 12px;
+  color: var(--text-bright-accent, #1ed760);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.rym-link:hover {
+  text-decoration: underline;
+}
+
+.rym-link:focus-visible {
+  outline: 2px solid var(--text-bright-accent, #1ed760);
+  outline-offset: 2px;
+}
+
+.rym-loading,
+.rym-not-found,
+.rym-error {
+  padding: 12px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-subdued, #a7a7a7);
+}
+
+.rym-error {
+  color: var(--text-negative, #f15e6c);
+}
+
+/* Accessibility: Respect reduced motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  .rym-extension-container * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+  `;
+  document.head.appendChild(styleElement);
+}
+
+//#endregion
+
+//#region Bootstrap
+
+(async function() {
+  // Wait for Spicetify to be ready
+  while (!Spicetify?.Player?.data || !Spicetify?.Platform) {
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+
+  console.log('RYM Extension: Initializing...');
+  injectStyles();
+  initializeExtension();
+})();
+
+//#endregion
