@@ -106,17 +106,22 @@ function determineRYMReleaseType(albumInfo) {
  */
 function getCurrentAlbumInfo() {
   const data = Spicetify.Player.data;
-  if (!data || !data.item) {
+  if (!data || !data.item || !data.context) {
     return null;
   }
 
+  // Use correct property paths from actual Spicetify data structure
+  const albumType = data.context.metadata?.albumType?.toLowerCase() || null;
+  const totalTracks = parseInt(data.context.metadata?.playlist_number_of_tracks) || null;
+  const releaseDate = data.context.metadata?.releaseDate || data.item.album?.date?.year || null;
+
   return {
-    artist: data.item.artists?.[0]?.name || '',
     album: data.item.album?.name || '',
+    albumType: albumType,
     albumUri: data.item.album?.uri || '',
-    releaseDate: data.item.album?.date?.year || null,
-    albumType: data.item.album?.type || null,
-    totalTracks: data.item.album?.total_tracks || null
+    artist: data.item.artists?.[0]?.name || '',
+    releaseDate: releaseDate,
+    totalTracks: totalTracks
   };
 }
 
@@ -163,27 +168,57 @@ function injectRYMLinks(artist, album) {
   const artistSlug = slugify(artist);
   const albumSlug = slugify(album);
   const albumUrl = `${RYM_BASE_URL}/release/${releaseType}/${artistSlug}/${albumSlug}/`;
+  const artistUrl = `${RYM_BASE_URL}/artist/${artistSlug}`;
   const searchUrl = `${RYM_BASE_URL}/search?searchterm=${encodeURIComponent(artist + ' ' + album)}`;
 
   const container = createRYMContainer();
   container.className = 'main-nowPlayingView-section main-nowPlayingView-rym';
   container.innerHTML = `
-    <div class="main-nowPlayingView-sectionHeader">
-      <h2 class="encore-text-body-medium-bold" data-encore-id="text">
-        <div class="main-nowPlayingView-sectionHeaderText">RYM</div>
-      </h2>
-    </div>
+    <h2 class="rym-section-title">RYM</h2>
     <div class="rym-content">
-      <a href="${albumUrl}" target="_blank" rel="noopener noreferrer" class="rym-album-link">
-        View on RateYourMusic
-      </a>
-      <div class="rym-fallback">
+      <div class="rym-link-item">
+        <a href="${albumUrl}" target="_blank" rel="noopener noreferrer" class="rym-album-link">
+          <span class="rym-link-text">View Album on RYM</span>
+        </a>
+        <button class="rym-copy-btn" data-url="${albumUrl}" title="Copy link" type="button">
+          <span class="rym-copy-icon">📋</span>
+        </button>
+      </div>
+      <div class="rym-link-item">
+        <a href="${artistUrl}" target="_blank" rel="noopener noreferrer" class="rym-artist-link">
+          <span class="rym-link-text">View Artist on RYM</span>
+        </a>
+      </div>
+      <div class="rym-link-item">
         <a href="${searchUrl}" target="_blank" rel="noopener noreferrer" class="rym-search-link">
-          Wrong page? Search RYM
+          <span class="rym-link-text">Wrong page? Search RYM</span>
         </a>
       </div>
     </div>
   `;
+
+  // Attach copy button functionality
+  const copyBtn = container.querySelector('.rym-copy-btn');
+  const copyIcon = container.querySelector('.rym-copy-icon');
+  if (copyBtn && copyIcon) {
+    copyBtn.addEventListener('click', function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      const url = this.getAttribute('data-url');
+
+      navigator.clipboard.writeText(url).then(() => {
+        // Change icon to checkmark and add visual feedback
+        copyIcon.textContent = '✓';
+        this.classList.add('copied');
+        setTimeout(() => {
+          copyIcon.textContent = '📋';
+          this.classList.remove('copied');
+        }, 1500);
+      }).catch(err => {
+        console.error('RYM Extension: Failed to copy link', err);
+      });
+    });
+  }
 
   console.log('RYM Extension: Detected release type:', releaseType, 'for', album);
   targetElement.appendChild(container);
@@ -238,48 +273,161 @@ function injectStyles() {
   styleElement.textContent = `
 /* RateYourMusic Spicetify Extension Styles */
 
+/* Fade-in animation */
+@keyframes rymFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .main-nowPlayingView-section.main-nowPlayingView-rym {
   margin-top: 24px;
-  padding-top: 24px;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  padding: 16px;
+  background-color: rgba(255, 255, 255, 0.03);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  animation: rymFadeIn 0.3s ease-out;
+}
+
+/* Header uses Spicetify theme color variables */
+.rym-section-title {
+  color: var(--spice-text, var(--text-base, #ffffff)) !important;
+  font-size: 16px;
+  font-weight: 700;
+  margin: 0 0 12px 0;
 }
 
 .rym-content {
-  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.rym-link-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 20px;
+  padding: 2px 0;
 }
 
 .rym-album-link {
-  color: var(--text-subdued, #a7a7a7);
+  color: var(--spice-text, var(--text-base, #ffffff));
   text-decoration: none;
   font-size: 14px;
   font-weight: 400;
-  transition: color 0.2s ease;
+  transition: all 0.2s ease;
   cursor: pointer;
-  display: block;
+  display: flex;
+  align-items: center;
+  flex: 1;
+  opacity: 0.9;
 }
 
 .rym-album-link:hover {
-  color: var(--text-base, #ffffff);
+  opacity: 1;
+}
+
+.rym-album-link:hover .rym-link-text {
   text-decoration: underline;
 }
 
-.rym-fallback {
-  margin-top: 8px;
+/* Copy button */
+.rym-copy-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  cursor: pointer;
+  padding: 6px 8px;
+  margin-left: 12px;
+  position: relative;
+  opacity: 0.6;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
 }
 
-.rym-search-link {
-  color: var(--text-subdued, #a7a7a7);
+.rym-copy-btn:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.rym-copy-btn:active {
+  transform: scale(0.95);
+}
+
+.rym-copy-icon {
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  transition: all 0.2s ease;
+}
+
+.rym-copy-btn.copied {
+  opacity: 1;
+  background: var(--spice-text, #1ed760);
+  border-color: var(--spice-text, #1ed760);
+}
+
+.rym-copy-btn.copied .rym-copy-icon {
+  color: #000;
+  font-weight: bold;
+}
+
+/* Artist link */
+.rym-artist-link {
+  color: var(--spice-text, var(--text-base, #ffffff));
   text-decoration: none;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 400;
+  transition: all 0.2s ease;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  opacity: 0.85;
+}
+
+.rym-artist-link:hover {
+  opacity: 1;
+}
+
+.rym-artist-link:hover .rym-link-text {
+  text-decoration: underline;
+}
+
+/* Search fallback link */
+.rym-search-link {
+  color: var(--spice-subtext, var(--text-subdued, #b3b3b3));
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 400;
+  transition: all 0.2s ease;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  width: 100%;
   opacity: 0.7;
-  transition: opacity 0.2s ease;
-  display: block;
 }
 
 .rym-search-link:hover {
   opacity: 1;
+}
+
+.rym-search-link:hover .rym-link-text {
   text-decoration: underline;
+}
+
+.rym-link-text {
+  display: inline-block;
 }
   `;
   document.head.appendChild(styleElement);
