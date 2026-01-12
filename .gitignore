@@ -31,3 +31,4 @@ build/
 # Temporary files
 *.tmp
 .cache/
+tmpclaude-*-cwd
