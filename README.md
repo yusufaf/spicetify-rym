@@ -5,8 +5,12 @@ Quick access to RateYourMusic album pages directly from Spotify.
 ## Features
 
 - **Direct Album Links**: One-click access to RYM album pages
+- **Artist Links**: Quick access to artist pages on RYM
 - **Smart Release Type Detection**: Automatically detects albums, EPs, singles, mixtapes, and compilations
 - **Fallback Search**: Quick search option if the direct link doesn't work
+- **URL Tooltips**: Hover over links to preview the full URL before clicking
+- **Configurable Settings**: Customize position, visible links, appearance, and more
+- **Copy to Clipboard**: One-click copy button for album URLs
 - **Native Integration**: Blends seamlessly with Spotify's right sidebar UI
 - **Theme-Agnostic**: Works with any Spicetify theme
 - **Lightweight**: Minimal code, no external dependencies
@@ -65,11 +69,29 @@ If the direct link doesn't match (edge cases happen), use the fallback "Search R
 
 Once installed, the extension automatically displays RYM links in the right sidebar (where "About the artist", "Credits", etc. appear).
 
-**Two links are provided:**
-- **"View on RateYourMusic"** - Direct link using smart detection
+**Links provided:**
+- **"View Album on RYM"** - Direct link to album page
+- **"View Artist on RYM"** - Direct link to artist page
 - **"Wrong page? Search RYM"** - Fallback search option
 
-Both links open in new tabs.
+All links open in new tabs. Hover over any link to preview the URL.
+
+## Settings
+
+Click the gear icon (⚙️) in the RYM card header to open settings.
+
+**Card Position:**
+- Top of panel
+- Below album info (default)
+
+**Visible Links:**
+- Album link (on/off)
+- Artist link (on/off)
+- Search link (on/off)
+
+**Appearance:**
+- Compact mode - Reduces padding and font sizes
+- Show URL tooltips - Preview URLs on hover
 
 ## Troubleshooting
 
@@ -103,7 +125,7 @@ Contributions welcome! Areas for improvement:
 - Better release type detection heuristics
 - Support for edge cases (DJ mixes, bootlegs, video releases)
 - Caching correct release types after user confirmation
-- Settings panel for manual overrides
+- Context menu integration (right-click on albums/artists)
 
 ## License
 
