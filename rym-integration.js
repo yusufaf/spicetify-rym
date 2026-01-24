@@ -1,6 +1,6 @@
 // NAME: RateYourMusic Integration
 // AUTHOR: yusufaf
-// VERSION: 0.1.0
+// VERSION: 1.0.0
 // DESCRIPTION: Display RateYourMusic links for your Spotify albums
 
 //#region Type Definitions
