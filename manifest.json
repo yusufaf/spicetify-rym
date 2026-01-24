@@ -1,0 +1,14 @@
+{
+  "name": "RateYourMusic Integration",
+  "description": "Quick access to RateYourMusic album and artist pages directly from Spotify's Now Playing sidebar",
+  "preview": "preview.png",
+  "main": "rym-integration.js",
+  "readme": "README.md",
+  "authors": [
+    {
+      "name": "yusufaf",
+      "url": "https://github.com/yusufaf"
+    }
+  ],
+  "tags": ["rym", "rateyourmusic", "music-discovery", "sidebar"]
+}

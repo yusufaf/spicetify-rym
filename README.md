@@ -2,6 +2,8 @@
 
 Quick access to RateYourMusic album pages directly from Spotify.
 
+![Preview](preview.png)
+
 ## Features
 
 - **Direct Album Links**: One-click access to RYM album pages
@@ -92,6 +94,12 @@ Click the gear icon (⚙️) in the RYM card header to open settings.
 **Appearance:**
 - Compact mode - Reduces padding and font sizes
 - Show URL tooltips - Preview URLs on hover
+
+## Screenshots
+
+| Settings | Tooltip | Compact Mode |
+|----------|---------|--------------|
+| ![Settings](settings.png) | ![Tooltip](tooltip.png) | ![Compact](compact-mode.png) |
 
 ## Troubleshooting
 

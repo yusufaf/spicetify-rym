@@ -237,28 +237,6 @@ function saveConfig(config) {
 }
 
 /**
- * Finds the "About the artist" section in the right sidebar
- * @returns {HTMLElement|null} The About the artist section element or null
- */
-function findAboutArtistSection() {
-  const contentContainer = findContentContainer();
-  if (!contentContainer) {
-    return null;
-  }
-
-  // Look for any section with "About" in the heading
-  const allSections = contentContainer.querySelectorAll('[class*="nowPlayingView-section"]');
-  for (const section of allSections) {
-    const heading = section.querySelector('h2');
-    if (heading && heading.textContent.toLowerCase().includes('about')) {
-      return section;
-    }
-  }
-
-  return null;
-}
-
-/**
  * Shows the settings modal using Spicetify.PopupModal
  * @returns {void}
  */
@@ -380,12 +358,6 @@ function repositionRYMCard() {
   // Remove and re-insert at new position
   existing.remove();
   insertRYMContainer(existing, config.position);
-
-  // For bottom position, schedule a delayed check
-  if (config.position === 'bottom') {
-    setTimeout(ensureBottomPosition, 1000);
-    setTimeout(ensureBottomPosition, 2000);
-  }
 }
 
 //#endregion
