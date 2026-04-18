@@ -334,11 +334,52 @@ function showSettingsModal() {
     });
   });
 
-  Spicetify.PopupModal.display({
-    title: 'RYM Settings',
-    content: modalContent,
-    isLarge: false
-  });
+  showCustomModal('RYM Settings', modalContent);
+}
+
+/**
+ * Displays a custom DOM modal (replacement for Spicetify.PopupModal which is
+ * broken in current Spotify versions due to React Router context errors).
+ * @param {string} title - Modal title
+ * @param {HTMLElement} contentElement - Modal body content
+ * @returns {void}
+ */
+function showCustomModal(title, contentElement) {
+  const existing = document.getElementById('rym-modal-overlay');
+  if (existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'rym-modal-overlay';
+  overlay.className = 'rym-modal-overlay';
+
+  const modal = document.createElement('div');
+  modal.className = 'rym-modal';
+
+  const header = document.createElement('div');
+  header.className = 'rym-modal-header';
+  header.innerHTML = `
+    <h2 class="rym-modal-title">${title}</h2>
+    <button class="rym-modal-close" type="button" aria-label="Close">&times;</button>
+  `;
+
+  const body = document.createElement('div');
+  body.className = 'rym-modal-body';
+  body.appendChild(contentElement);
+
+  modal.appendChild(header);
+  modal.appendChild(body);
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+
+  const close = () => {
+    overlay.remove();
+    document.removeEventListener('keydown', onEsc);
+  };
+  const onEsc = (e) => { if (e.key === 'Escape') close(); };
+
+  header.querySelector('.rym-modal-close').addEventListener('click', close);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  document.addEventListener('keydown', onEsc);
 }
 
 /**
@@ -587,8 +628,9 @@ function injectRYMLinks(artist, album) {
     settingsBtn.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
+      e.stopImmediatePropagation();
       showSettingsModal();
-    });
+    }, true);
   }
 
   console.log('RYM Extension: Detected release type:', releaseType, 'for', album);
@@ -820,10 +862,73 @@ function injectStyles() {
   font-size: 14px;
   line-height: 1;
   flex-shrink: 0;
+  position: relative;
+  z-index: 10;
+  pointer-events: auto;
 }
 
 .rym-settings-btn:hover {
   opacity: 1;
+}
+
+/* Custom modal (replaces broken Spicetify.PopupModal) */
+.rym-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: rymFadeIn 0.15s ease-out;
+}
+
+.rym-modal {
+  background: var(--spice-main, #121212);
+  color: var(--spice-text, #fff);
+  border-radius: 8px;
+  min-width: 340px;
+  max-width: 480px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.rym-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.rym-modal-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.rym-modal-close {
+  background: transparent;
+  border: none;
+  color: var(--spice-text, #fff);
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px 8px;
+  opacity: 0.7;
+  transition: opacity 0.2s ease;
+}
+
+.rym-modal-close:hover {
+  opacity: 1;
+}
+
+.rym-modal-body {
+  padding: 16px 20px;
+  overflow-y: auto;
 }
 
 /* Settings modal */
