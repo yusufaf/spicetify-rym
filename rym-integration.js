@@ -1,6 +1,6 @@
 // NAME: RateYourMusic Integration
 // AUTHOR: yusufaf
-// VERSION: 1.0.0
+// VERSION: 1.0.2
 // DESCRIPTION: Display RateYourMusic links for your Spotify albums
 
 //#region Type Definitions
@@ -33,6 +33,9 @@ const SELECTOR_RIGHT_SIDEBAR_ALT = '[data-testid="NPV_Panel_OpenDiv"]';
 
 /** LocalStorage key for extension configuration */
 const CONFIG_KEY = 'rym-extension-config';
+
+/** Gear/settings icon SVG path (16x16 viewBox, Bootstrap Icons gear-fill) */
+const GEAR_SVG_PATH = 'M9.405 1.05c-.413-1.4-2.397-1.4-2.81 0l-.1.34a1.464 1.464 0 0 1-2.105.872l-.31-.17c-1.283-.698-2.686.705-1.987 1.987l.169.311c.446.82.023 1.841-.872 2.105l-.34.1c-1.4.413-1.4 2.397 0 2.81l.34.1a1.464 1.464 0 0 1 .872 2.105l-.17.31c-.698 1.283.705 2.686 1.987 1.987l.311-.169a1.464 1.464 0 0 1 2.105.872l.1.34c.413 1.4 2.397 1.4 2.81 0l.1-.34a1.464 1.464 0 0 1 2.105-.872l.31.17c1.283.698 2.686-.705 1.987-1.987l-.169-.311a1.464 1.464 0 0 1 .872-2.105l.34-.1c1.4-.413 1.4-2.397 0-2.81l-.34-.1a1.464 1.464 0 0 1-.872-2.105l.17-.31c.698-1.283-.705-2.686-1.987-1.987l-.311.169a1.464 1.464 0 0 1-2.105-.872zM8 10.93a2.929 2.929 0 1 1 0-5.858 2.929 2.929 0 0 1 0 5.858z';
 
 /** Default configuration */
 const DEFAULT_CONFIG = {
@@ -234,6 +237,16 @@ function loadConfig() {
  */
 function saveConfig(config) {
   Spicetify.LocalStorage.set(CONFIG_KEY, JSON.stringify(config));
+}
+
+/**
+ * Registers a "RYM" entry in the Spotify profile menu so settings remain
+ * reachable from anywhere in the app, not just album pages where the card renders.
+ */
+function registerMenuItem() {
+  if (!Spicetify?.Menu?.Item) return;
+  const item = new Spicetify.Menu.Item('RYM', false, showSettingsModal);
+  item.register();
 }
 
 /**
@@ -581,7 +594,9 @@ function injectRYMLinks(artist, album) {
     <h2 class="rym-section-title">
       RYM
       <button class="rym-settings-btn" title="Settings" type="button">
-        <span class="rym-settings-icon">⚙️</span>
+        <svg class="rym-settings-icon" viewBox="0 0 16 16" fill="currentColor" fill-rule="evenodd" aria-hidden="true">
+          <path d="${GEAR_SVG_PATH}"></path>
+        </svg>
       </button>
     </h2>
     <div class="rym-content">
@@ -859,12 +874,21 @@ function injectStyles() {
   padding: 4px;
   opacity: 0.5;
   transition: opacity 0.2s ease;
-  font-size: 14px;
-  line-height: 1;
+  line-height: 0;
   flex-shrink: 0;
   position: relative;
   z-index: 10;
   pointer-events: auto;
+  color: var(--spice-text, #fff);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.rym-settings-icon {
+  width: 14px;
+  height: 14px;
+  display: block;
 }
 
 .rym-settings-btn:hover {
@@ -1186,12 +1210,13 @@ function initializeExtension() {
 //#region Bootstrap
 
 (async function () {
-  while (!Spicetify?.Player?.data || !Spicetify?.Platform) {
+  while (!Spicetify?.Player?.data || !Spicetify?.Platform || !Spicetify?.Menu?.Item) {
     await new Promise(resolve => setTimeout(resolve, 100));
   }
 
   console.log('RYM Extension: Starting...');
   injectStyles();
+  registerMenuItem();
   initializeExtension();
 })();
 
