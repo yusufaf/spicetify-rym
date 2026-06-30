@@ -75,10 +75,11 @@ function slugify(str) {
     .replace(/[\u0300-\u036f]/g, '')     // Remove diacritical marks
     .toLowerCase()
     .trim()
+    .replace(/\$/g, '_')                 // Explicitly convert $ to _ for RYM URLs
     .replace(/[^\w\s-]/g, '')            // Remove remaining special characters
-    .replace(/[\s_]+/g, '-')             // Replace spaces/underscores with hyphens
+    .replace(/\s+/g, '-')                // Replace spaces with hyphens (preserve underscores)
     .replace(/-+/g, '-')                 // Collapse multiple hyphens
-    .replace(/^-+|-+$/g, '');            // Trim hyphens from ends
+    .replace(/^-+|-+$|_+$/g, '');        // Trim hyphens from ends and trailing underscores
 }
 
 /**
