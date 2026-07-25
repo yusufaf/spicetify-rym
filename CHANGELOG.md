@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0](https://github.com/yusufaf/spicetify-rym/compare/v1.0.2...v1.1.0) (2026-07-25)
+
+
+### Features
+
+* add version and GitHub issue link to settings modal footer ([e6bc9d4](https://github.com/yusufaf/spicetify-rym/commit/e6bc9d40bcdba363dbcad16d01b6101a957f4c32))
+
+
+### Bug Fixes
+
+* improve URL slug generation for symbols ([ef1a03b](https://github.com/yusufaf/spicetify-rym/commit/ef1a03babca05c690b41385f89db4eef0039f43d))
+
 ## [1.0.2] - 2026-04-25
 
 ### Added
