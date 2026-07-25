@@ -1,7 +1,7 @@
 // NAME: RateYourMusic Integration
 // AUTHOR: yusufaf
 // x-release-please-start-version
-// VERSION: 1.0.2
+// VERSION: 1.1.0
 // x-release-please-end-version
 // DESCRIPTION: Display RateYourMusic links for your Spotify albums
 
@@ -44,7 +44,7 @@ const GITHUB_SVG_PATH = 'M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.
 
 /** Extension version, shown in the settings modal footer. Kept in sync with the VERSION banner by release-please. */
 // x-release-please-start-version
-const RYM_VERSION = '1.0.2';
+const RYM_VERSION = '1.1.0';
 // x-release-please-end-version
 
 /** GitHub repo slug, used to build the "report an issue" link in the settings modal footer */
