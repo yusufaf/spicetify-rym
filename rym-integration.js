@@ -84,6 +84,34 @@ let rymCard = null;
 //#region Utilities
 
 /**
+ * Characters NFD does not decompose, which the special-character strip would
+ * otherwise delete outright (Ágætis byrjun → "agtis-byrjun" instead of
+ * "agaetis-byrjun"). Applied after toLowerCase(), so lowercase keys suffice.
+ *
+ * Verified against live RYM URLs: æ (sigur-ros/agaetis-byrjun, kaelan-mikla),
+ * ø (artist/slotface). The rest follow the same transliteration convention but
+ * are unverified — check against a real RYM URL before relying on them.
+ */
+const SLUG_TRANSLITERATIONS = {
+  'æ': 'ae',
+  'œ': 'oe',
+  'ø': 'o',
+  'ß': 'ss',
+  'đ': 'd',
+  'ð': 'd',
+  'ł': 'l',
+  'þ': 'th',
+  'ı': 'i',
+  'ŋ': 'n'
+};
+
+/** @type {RegExp} Matches any key of SLUG_TRANSLITERATIONS */
+const SLUG_TRANSLITERATION_PATTERN = new RegExp(
+  `[${Object.keys(SLUG_TRANSLITERATIONS).join('')}]`,
+  'g'
+);
+
+/**
  * Slugifies string for RYM URLs (lowercase, hyphens, remove special chars)
  * Handles accented characters by converting them to ASCII equivalents
  * @param {string} str - Input string
@@ -95,7 +123,12 @@ function slugify(str) {
     .replace(/[\u0300-\u036f]/g, '')     // Remove diacritical marks
     .toLowerCase()
     .trim()
-    .replace(/\$/g, '_')                 // Explicitly convert $ to _ for RYM URLs
+    // Unicode dashes are not \w and would be deleted, silently joining the words
+    // either side (JAŸ-Z spelled with U+2010 would slug to "jayz" and 404)
+    .replace(/[‐-―−]/g, '-')
+    // Expand ligatures NFD leaves intact, before they get stripped below
+    .replace(SLUG_TRANSLITERATION_PATTERN, (ch) => SLUG_TRANSLITERATIONS[ch])
+    .replace(/[$/]/g, '_')               // RYM maps $ and / to _ (AWAKE/ASLEEP → awake_asleep)
     .replace(/[^\w\s-]/g, '')            // Remove remaining special characters
     .replace(/\s+/g, '-')                // Replace spaces with hyphens (preserve underscores)
     .replace(/-+/g, '-')                 // Collapse multiple hyphens
