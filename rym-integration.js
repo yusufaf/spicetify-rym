@@ -56,6 +56,23 @@ const RYM_VERSION = '1.0.2';
 /** GitHub repo slug, used to build the "report an issue" link in the settings modal footer */
 const RYM_GITHUB_REPO = 'yusufaf/spicetify-rym';
 
+/**
+ * Marker appended to outgoing album links when the companion API is configured.
+ * The capture userscript reads `sid` off the URL, which ties a RYM page back to
+ * an exact Spotify album with no name matching involved.
+ */
+const RYM_LINK_SOURCE = 'spicetify';
+
+/**
+ * Give up on the companion API after this long. The card is fully rendered
+ * before the request is even sent, so a slow or dead server costs nothing
+ * except the upgrade it would have provided.
+ */
+const API_TIMEOUT_MS = 4000;
+
+/** Spotify base-62 album ids are 22 characters. */
+const SPOTIFY_ALBUM_ID_PATTERN = /^[A-Za-z0-9]{22}$/;
+
 /** Default configuration */
 const DEFAULT_CONFIG = {
   position: 'below-album-info',
@@ -63,7 +80,15 @@ const DEFAULT_CONFIG = {
   showArtistLink: true,
   showSearchLink: true,
   compactMode: false,
-  showTooltips: true
+  showTooltips: true,
+  // Companion API (spicetify-music-api), off until both fields are filled in.
+  // With no configuration the extension makes zero network requests, which is a
+  // property worth keeping deliberate rather than incidental.
+  apiBaseUrl: '',
+  apiToken: '',
+  // Whether to show the rating and genres you captured yourself. Only has an
+  // effect once the API above is configured.
+  showRymData: true
 };
 
 //#endregion
@@ -78,6 +103,17 @@ let currentAlbumUri = null;
 
 /** @type {HTMLElement|null} Card for the current album, kept so it can be re-inserted when Spotify re-renders the panel */
 let rymCard = null;
+
+/**
+ * @type {Map<string, Object>} spotifyAlbumId -> companion API response.
+ * Session-scoped, so a capture made mid-session shows up after the next
+ * Spotify restart rather than being cached as absent forever. Only successful
+ * responses are stored; a miss is retried on the next album change.
+ */
+const albumDataCache = new Map();
+
+/** Bounds the cache for very long listening sessions. */
+const ALBUM_CACHE_LIMIT = 300;
 
 //#endregion
 
@@ -296,6 +332,107 @@ function saveConfig(config) {
 }
 
 /**
+ * Whether the companion API is usable. Both fields are required, so a partly
+ * filled-in settings form never results in a request.
+ * @param {Object} config - Configuration object
+ * @returns {boolean} True when the API should be contacted
+ */
+function isApiConfigured(config) {
+  return Boolean(config.apiBaseUrl && config.apiToken);
+}
+
+/**
+ * Extracts the bare album id from a Spotify URI ("spotify:album:<id>").
+ * @param {string|null} albumUri - Spotify album URI
+ * @returns {string|null} The 22-character id, or null if the URI is unusable
+ */
+function spotifyAlbumIdFromUri(albumUri) {
+  if (typeof albumUri !== 'string') return null;
+  const id = albumUri.split(':').pop();
+  return SPOTIFY_ALBUM_ID_PATTERN.test(id) ? id : null;
+}
+
+/**
+ * Appends the correlation marker to an outgoing RYM link.
+ * @param {string} url - RYM URL
+ * @param {string|null} spotifyAlbumId - Album id to correlate with
+ * @returns {string} URL with the marker, or the original when there is no id
+ */
+function withCorrelation(url, spotifyAlbumId) {
+  if (!spotifyAlbumId) return url;
+  const separator = url.includes('?') ? '&' : '?';
+  return `${url}${separator}src=${RYM_LINK_SOURCE}&sid=${spotifyAlbumId}`;
+}
+
+/**
+ * Checks a URL is genuinely a RateYourMusic page before it becomes an href.
+ *
+ * The API validates this on write, but pooled links originate from other users'
+ * captures, so the value arriving here is not something this extension has ever
+ * verified itself. Re-checking on read is cheap and keeps a bad row in the
+ * shared table from turning into a link the user clicks.
+ *
+ * @param {string} url - Candidate URL
+ * @returns {boolean} True when the URL is an https rateyourmusic.com URL
+ */
+function isSafeRymUrl(url) {
+  if (typeof url !== 'string') return false;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'https:' && parsed.hostname === 'rateyourmusic.com';
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * Fetches stored RYM data for an album from the companion API.
+ *
+ * Never throws and never rejects: every failure path returns null, because the
+ * card is already rendered by the time this runs and a dead server must be
+ * indistinguishable from having no server configured.
+ *
+ * @param {string} spotifyAlbumId - Spotify album id
+ * @param {Object} config - Configuration object
+ * @returns {Promise<Object|null>} API response, or null on any failure
+ */
+async function fetchAlbumData(spotifyAlbumId, config) {
+  const cached = albumDataCache.get(spotifyAlbumId);
+  if (cached) return cached;
+
+  const baseUrl = config.apiBaseUrl.replace(/\/+$/, '');
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(
+      `${baseUrl}/v1/album?spotifyAlbumId=${encodeURIComponent(spotifyAlbumId)}`,
+      {
+        headers: { Authorization: `Bearer ${config.apiToken}` },
+        signal: controller.signal
+      }
+    );
+
+    if (!response.ok) {
+      console.warn('RYM Extension: album lookup returned', response.status);
+      return null;
+    }
+
+    const data = await response.json();
+    if (albumDataCache.size >= ALBUM_CACHE_LIMIT) {
+      albumDataCache.clear();
+    }
+    albumDataCache.set(spotifyAlbumId, data);
+    return data;
+  } catch (e) {
+    console.warn('RYM Extension: album lookup unavailable:', e.message);
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
  * Registers a "RYM" entry in the Spotify profile menu so settings remain
  * reachable from anywhere in the app, not just album pages where the card renders.
  */
@@ -369,7 +506,56 @@ function showSettingsModal() {
         </label>
       </div>
     </div>
+
+    <div class="rym-settings-section">
+      <h3 class="rym-settings-section-title">Companion API (optional)</h3>
+      <p class="rym-settings-section-desc">
+        Leave these blank and the extension makes no network requests at all, which is the default.
+        Fill both in and it will ask your own server for the RYM page previously seen for each album,
+        and show the rating and genres you captured with the userscript.
+        The token is stored in Spotify's local storage as plain text.
+      </p>
+      <div class="rym-settings-fields">
+        <label class="rym-settings-field">
+          <span class="rym-settings-field-label">API base URL</span>
+          <input type="text" name="apiBaseUrl" spellcheck="false" autocomplete="off"
+                 placeholder="https://xxxx.execute-api.us-east-1.amazonaws.com">
+        </label>
+        <label class="rym-settings-field">
+          <span class="rym-settings-field-label">API token</span>
+          <input type="password" name="apiToken" spellcheck="false" autocomplete="off"
+                 placeholder="from scripts/issue-token.ts">
+        </label>
+      </div>
+      <div class="rym-toggle-options">
+        <label class="rym-toggle-option">
+          <input type="checkbox" name="showRymData" ${config.showRymData ? 'checked' : ''}>
+          <span class="rym-toggle-switch"></span>
+          <span class="rym-toggle-label">Show my captured rating and genres</span>
+        </label>
+      </div>
+    </div>
   `;
+
+  // Values are assigned rather than interpolated into the template above, so a
+  // token containing a quote cannot break out of the attribute.
+  const apiFields = modalContent.querySelectorAll('.rym-settings-field input');
+  apiFields.forEach((field) => {
+    field.value = config[field.name] || '';
+    field.addEventListener('change', (e) => {
+      const newConfig = loadConfig();
+      newConfig[e.target.name] = e.target.value.trim();
+      saveConfig(newConfig);
+
+      // Pointing at a different server invalidates anything already fetched.
+      albumDataCache.clear();
+
+      const albumInfo = getCurrentAlbumInfo();
+      if (albumInfo) {
+        injectRYMLinks(albumInfo.artist, albumInfo.album);
+      }
+    });
+  });
 
   // Position radio handlers
   const radios = modalContent.querySelectorAll('input[name="rym-position"]');
@@ -579,15 +765,27 @@ function injectRYMLinks(artist, album) {
 
   const config = loadConfig();
 
+  // Only tag the link when there is somewhere for a capture to go. Without the
+  // API configured the marker would change every outgoing URL for no benefit.
+  const spotifyAlbumId = isApiConfigured(config)
+    ? spotifyAlbumIdFromUri(albumInfo?.albumUri)
+    : null;
+  const albumHref = withCorrelation(albumUrl, spotifyAlbumId);
+
   const container = createRYMContainer();
   container.className = `main-nowPlayingView-section main-nowPlayingView-rym${config.compactMode ? ' rym-compact' : ''}`;
+  // Lets an in-flight API response tell whether the card it was fired for is
+  // still the current one.
+  if (albumInfo?.albumUri) {
+    container.dataset.albumUri = albumInfo.albumUri;
+  }
 
   // Build links HTML based on config
   let linksHtml = '';
   if (config.showAlbumLink) {
     linksHtml += `
       <div class="rym-link-item">
-        <a href="${albumUrl}" target="_blank" rel="noopener noreferrer" class="rym-album-link">
+        <a href="${albumHref}" target="_blank" rel="noopener noreferrer" class="rym-album-link">
           <span class="rym-link-text">View Album on RYM</span>
         </a>
         <button class="rym-copy-btn" data-url="${albumUrl}" title="Copy link" type="button">
@@ -683,6 +881,151 @@ function injectRYMLinks(artist, album) {
       console.warn('RYM Extension: Could not find content container');
     }
   }, 3000);
+
+  // Everything above is the card as it has always been, already built and
+  // already correct. The API can only add to it, never delay it.
+  if (spotifyAlbumId) {
+    upgradeFromApi(albumInfo, spotifyAlbumId, config);
+  }
+}
+
+/**
+ * Replaces the guessed RYM URL with one a real user landed on, and shows the
+ * data you captured yourself.
+ *
+ * Runs after the card is on screen and mutates it in place. Every exit path is
+ * a silent return: if the API is slow, down, or has nothing stored, the card
+ * simply stays as it was rendered.
+ *
+ * @param {AlbumInfo} albumInfo - Album the card was rendered for
+ * @param {string} spotifyAlbumId - Album id, already validated
+ * @param {Object} config - Configuration object
+ * @returns {Promise<void>}
+ */
+async function upgradeFromApi(albumInfo, spotifyAlbumId, config) {
+  const data = await fetchAlbumData(spotifyAlbumId, config);
+  if (!data) return;
+
+  // The track may have changed while the request was in flight. Both checks
+  // matter: currentAlbumUri catches a skip, and the container's own dataset
+  // catches a re-render that replaced the element this call was fired for.
+  // rymCard rather than a DOM lookup: the card may not be attached yet (panel
+  // still loading, or the sidebar showing Queue) and is upgraded all the same.
+  if (albumInfo.albumUri !== currentAlbumUri) return;
+  const container = rymCard;
+  if (!container || container.dataset.albumUri !== albumInfo.albumUri) return;
+
+  applyPooledLink(container, data.link, spotifyAlbumId, config);
+
+  if (config.showRymData) {
+    renderCapturedData(container, data.personal);
+  }
+}
+
+/**
+ * Points the album link at the URL stored for this album.
+ *
+ * This is the part that fixes 404s no amount of slug logic can: RYM's
+ * disambiguation suffixes (/homogenic-17/, /the-blueprint.p/) are not derivable
+ * from Spotify metadata by any means, so the only way to know one is for
+ * somebody to have landed on it.
+ *
+ * @param {HTMLElement} container - The RYM card
+ * @param {Object|null} link - Pooled link record from the API
+ * @param {string} spotifyAlbumId - Album id, for the correlation marker
+ * @param {Object} config - Configuration object
+ * @returns {void}
+ */
+function applyPooledLink(container, link, spotifyAlbumId, config) {
+  if (!link || !isSafeRymUrl(link.rymUrl)) return;
+
+  const albumLink = container.querySelector('.rym-album-link');
+  if (albumLink) {
+    albumLink.href = withCorrelation(link.rymUrl, spotifyAlbumId);
+    albumLink.classList.add('rym-link-confirmed');
+    if (config.showTooltips) {
+      // attachTooltip adds listeners rather than replacing them, so the old
+      // pair has to go before a second one is attached.
+      const replacement = albumLink.cloneNode(true);
+      albumLink.replaceWith(replacement);
+      attachTooltip(replacement, link.rymUrl);
+    }
+  }
+
+  // The copy button deliberately keeps the clean URL: the correlation marker is
+  // this extension's business, not something to paste into a chat window.
+  const copyBtn = container.querySelector('.rym-copy-btn');
+  if (copyBtn) {
+    copyBtn.setAttribute('data-url', link.rymUrl);
+  }
+}
+
+/**
+ * Renders the rating and genres this user captured for the album.
+ *
+ * Built with createElement rather than innerHTML. The values are RYM's own
+ * strings round-tripped through a server, and interpolating those into markup
+ * would make the card an injection sink for anything that gets into the table.
+ *
+ * @param {HTMLElement} container - The RYM card
+ * @param {Object|null} personal - Personal capture record from the API
+ * @returns {void}
+ */
+function renderCapturedData(container, personal) {
+  if (!personal) return;
+
+  const content = container.querySelector('.rym-content');
+  if (!content) return;
+
+  const existing = content.querySelector('.rym-data');
+  if (existing) existing.remove();
+
+  const data = document.createElement('div');
+  data.className = 'rym-data';
+
+  if (typeof personal.rating === 'number') {
+    const rating = document.createElement('div');
+    rating.className = 'rym-data-rating';
+
+    const score = document.createElement('span');
+    score.className = 'rym-data-score';
+    score.textContent = personal.rating.toFixed(2);
+    rating.appendChild(score);
+
+    if (typeof personal.ratingCount === 'number') {
+      const count = document.createElement('span');
+      count.className = 'rym-data-count';
+      count.textContent = `${personal.ratingCount.toLocaleString()} ratings`;
+      rating.appendChild(count);
+    }
+
+    if (typeof personal.yourRating === 'number') {
+      const yours = document.createElement('span');
+      yours.className = 'rym-data-yours';
+      yours.textContent = `you: ${personal.yourRating}`;
+      rating.appendChild(yours);
+    }
+
+    data.appendChild(rating);
+  }
+
+  if (Array.isArray(personal.genres) && personal.genres.length > 0) {
+    const genres = document.createElement('div');
+    genres.className = 'rym-data-genres';
+    // Capped because the card is a sidebar column, not a page.
+    personal.genres.slice(0, 6).forEach((name) => {
+      const tag = document.createElement('span');
+      tag.className = 'rym-data-genre';
+      tag.textContent = name;
+      genres.appendChild(tag);
+    });
+    data.appendChild(genres);
+  }
+
+  if (data.childElementCount === 0) return;
+
+  data.title = `Captured from RateYourMusic on ${personal.capturedAt ? personal.capturedAt.slice(0, 10) : 'an earlier visit'}`;
+  content.insertBefore(data, content.firstChild);
 }
 
 /**
@@ -778,6 +1121,68 @@ function injectStyles() {
   justify-content: space-between;
   min-height: 20px;
   padding: 2px 0;
+}
+
+/* Captured RYM data. Only rendered when the companion API is configured. */
+.rym-data {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.rym-data-rating {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.rym-data-score {
+  color: var(--spice-text, #fff);
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.rym-data-count {
+  color: var(--spice-subtext, #b3b3b3);
+  font-size: 11px;
+}
+
+.rym-data-yours {
+  color: var(--spice-button, #1ed760);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.rym-data-genres {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.rym-data-genre {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+  color: var(--spice-subtext, #b3b3b3);
+  font-size: 11px;
+  padding: 2px 6px;
+  text-transform: capitalize;
+}
+
+/* Marks a link that came from a real capture rather than a generated slug. */
+.rym-link-confirmed .rym-link-text::after {
+  content: '✓';
+  color: var(--spice-button, #1ed760);
+  font-size: 10px;
+  margin-left: 6px;
+  opacity: 0.8;
+}
+
+.rym-compact .rym-data-score {
+  font-size: 16px;
 }
 
 .rym-album-link {
@@ -1039,6 +1444,48 @@ function injectStyles() {
   color: var(--spice-subtext, #b3b3b3);
   font-size: 12px;
   margin: 0 0 12px 0;
+}
+
+.rym-settings-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.rym-settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.rym-settings-field-label {
+  color: var(--spice-subtext, #b3b3b3);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.rym-settings-field input {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+  color: var(--spice-text, #fff);
+  font-family: inherit;
+  font-size: 13px;
+  padding: 8px 10px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.rym-settings-field input:focus {
+  border-color: var(--spice-button, #1ed760);
+  outline: none;
+}
+
+.rym-settings-field input::placeholder {
+  color: rgba(255, 255, 255, 0.3);
 }
 
 .rym-position-options {

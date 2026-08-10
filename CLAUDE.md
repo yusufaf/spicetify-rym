@@ -48,6 +48,8 @@ Two things drive correctness and are the usual sources of bugs:
 
 Config lives in `localStorage` under `rym-extension-config`, loaded via `loadConfig()` which spreads over `DEFAULT_CONFIG` — so adding a new setting to `DEFAULT_CONFIG` automatically back-fills for existing users. Never read the raw key directly.
 
+The optional companion API (`apiBaseUrl` + `apiToken`, both blank by default) is the extension's only network code. Treat "no configuration means no requests" as an invariant, not a default: there is exactly one `fetch()` in the file, inside `fetchAlbumData()`, reachable only through `upgradeFromApi()`, which `injectRYMLinks()` calls only when `isApiConfigured()` produced an album id. Anything that adds a second call site needs the same reasoning applied. `upgradeFromApi()` runs *after* the card is built and mutates it in place (via `rymCard`, since the card may not be attached to the panel yet), so every failure path is a silent return and the unconfigured card is byte-identical to the pre-API one. `isSafeRymUrl()` re-validates URLs coming back from the API because pooled links originate from other users' captures.
+
 Spicetify's `PopupModal` was broken for this use case, so `showCustomModal()` is a hand-rolled replacement. Don't "fix" it back to `PopupModal` without live verification.
 
 ## Release process
