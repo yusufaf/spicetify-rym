@@ -95,6 +95,34 @@ Click the gear icon (⚙️) in the RYM card header to open settings.
 - Compact mode - Reduces padding and font sizes
 - Show URL tooltips - Preview URLs on hover
 
+**Companion API (optional, blank by default):**
+- API base URL / API token - see below
+- Show my captured rating and genres
+
+## Companion API (optional)
+
+By default this extension makes **no network requests of any kind**. It builds RYM URLs from the album metadata Spotify already gave it and renders links. Nothing leaves your machine. If that is what you want, skip this section — the fields are blank out of the box and there is nothing to turn off.
+
+Filling them in connects the extension to [spicetify-music-api](https://github.com/yusufaf/spicetify-music-api), your own AWS deployment, which adds two things:
+
+**Links that actually resolve.** RYM disambiguates releases with suffixes — Björk's *Homogenic* lives at `/homogenic-17/`, Jay-Z's *The Blueprint* at `/the-blueprint.p/`. Nothing in Spotify's metadata can tell you that suffix exists, so no amount of slug logic will ever produce it. The only way to know a URL is right is for somebody to have landed on it. Once a page has been captured, the card links straight to it and shows a `✓`.
+
+**Your own RYM data in the sidebar.** Rating, rating count and genres for albums you have visited, captured by the companion userscript from pages you opened yourself.
+
+### What gets sent
+
+With the API configured, changing albums sends the 22-character Spotify album id to *your* server, with your bearer token. That is the whole request. No listening history, no timestamps, no track-level data.
+
+Outgoing RYM links also gain `?src=spicetify&sid=<album id>`, which is how the userscript ties a RYM page back to a Spotify album without guessing from names. The copy button still copies the clean URL.
+
+### Failure behaviour
+
+The card renders from local metadata first and is on screen before any request is sent. The lookup then upgrades it in place, or does not. A server that is down, slow, unreachable or misconfigured produces a console warning and the card you would have had anyway. Requests are abandoned after 4 seconds.
+
+### Data sharing
+
+Album-to-URL mappings are pooled across users of a shared deployment, because a link is factual and pooling is what makes 404s get fixed once rather than repeatedly. **Ratings, genres and descriptors are private to whoever captured them** and are never served to another user — enforced by the server's key layout, not by a filter. See the [spicetify-music-api README](https://github.com/yusufaf/spicetify-music-api).
+
 ## Screenshots
 
 | Settings | Tooltip | Compact Mode |
@@ -118,14 +146,17 @@ Click the gear icon (⚙️) in the RYM card header to open settings.
 - Look for "RYM Extension:" messages
 - Ensure Spicetify is updated
 
-## Why No Auto-Fetching?
+## Why No Scraping?
 
-Earlier versions attempted to scrape RYM ratings/genres, but this proved unreliable:
-- Cloudflare bot protection blocks automated requests
-- CORS restrictions prevent client-side fetching
-- Proxy solutions still get blocked
+Earlier versions attempted to fetch RYM ratings and genres directly. That does not work, and it is not a matter of trying harder:
 
-The current "direct link" approach is more maintainable and respects RYM's infrastructure.
+- `robots.txt` is `Disallow: /` with an explicit prohibition on crawling
+- Requests from a residential IP with a normal browser User-Agent return 403
+- An automation-driven real Chrome gets served a Cloudflare Turnstile challenge
+- CORS blocks client-side fetching regardless
+- Proxy rotation gets blocked too, and is circumvention rather than a fix
+
+So the default build only ever builds links. The optional [companion API](#companion-api-optional) does reach ratings and genres, but by a different route entirely: a userscript reads pages **you** opened in **your** logged-in browser. It sends nothing to rateyourmusic.com — no crawling, no prefetching, no link following. `robots.txt` governs robots, and there isn't one.
 
 ## Contributing
 

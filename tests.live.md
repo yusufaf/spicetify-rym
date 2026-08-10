@@ -71,3 +71,40 @@ JSON.parse(Spicetify.LocalStorage.get('rym-extension-config') || 'null')
 - Add `console.log('RYM Extension: HOT-RELOAD-MARKER')` near the Initialized log (line ~1207).
 - CDP reload; console filter `HOT-RELOAD-MARKER`: must appear.
 - Revert.
+
+## T8: Companion API stays off by default
+
+This is the one that must never regress. With no API configured the extension makes zero network requests, and that has to be observable rather than assumed.
+
+- Eval: `JSON.parse(Spicetify.LocalStorage.get('rym-extension-config')).apiBaseUrl` → `""`.
+- Open DevTools Network, filter `execute-api`, navigate between three albums.
+- Assert: no requests. Not "no failed requests" — none at all.
+- Eval: `document.querySelector('.rym-album-link').href.includes('sid=')` → `false`. The correlation marker is only attached when there is somewhere for a capture to go.
+- Assert: no `.rym-data` block in the card.
+
+## T9: Link upgrade from a stored capture
+
+Needs the API deployed and a token set in settings, plus one album captured via the userscript. Björk's *Homogenic* is the useful case: the slug generator produces `/homogenic/`, RYM serves it at `/homogenic-17/`, and no amount of slug logic can derive that suffix.
+
+- Set API base URL and token in RYM settings.
+- Play an album that has a capture stored.
+- Assert: `.rym-album-link` href becomes the captured URL, and carries `?src=spicetify&sid=<22-char id>`.
+- Assert: a `✓` appears after the link text (`.rym-link-confirmed`).
+- Assert: the copy button still copies the **clean** URL — eval `document.querySelector('.rym-copy-btn').dataset.url` → no `sid=`.
+- Play an album with no capture: card must look exactly as it did in T8, no error in console.
+
+## T10: Slow or dead API changes nothing
+
+- Set API base URL to `https://127.0.0.1:9` (nothing listening) and any token.
+- Navigate between albums.
+- Assert: card renders immediately, with the generated URL, no visible delay.
+- Console: `RYM Extension: album lookup unavailable:` warnings only. No uncaught errors, no `Failed to fetch` red.
+- Repeat with a URL that hangs, to exercise the 4s `API_TIMEOUT_MS` abort.
+
+## T11: Skipping tracks during a lookup
+
+Guards the race between an in-flight request and a fast skip.
+
+- With the API configured and a deliberately slow endpoint, start an album and immediately skip to a different album.
+- Assert: the card shows the *second* album, and its href is never overwritten by the first album's stored link.
+- Eval during the race: `document.getElementById('rym-container').dataset.albumUri` should always equal `Spicetify.Player.data.item.album.uri`.
