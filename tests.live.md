@@ -92,6 +92,7 @@ Needs the API deployed and a token set in settings, plus one album captured via 
 - Assert: a `✓` appears after the link text (`.rym-link-confirmed`).
 - Assert: the copy button still copies the **clean** URL — eval `document.querySelector('.rym-copy-btn').dataset.url` → no `sid=`.
 - Play an album with no capture: card must look exactly as it did in T8, no error in console.
+- Capture an album that was already looked up this session, then switch to another album and back. Assert: `✓` appears without a Spotify reload — a lookup that returned nothing is not cached, so the next album change re-asks.
 
 ## T10: Slow or dead API changes nothing
 
