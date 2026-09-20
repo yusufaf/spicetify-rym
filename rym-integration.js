@@ -106,9 +106,9 @@ let rymCard = null;
 
 /**
  * @type {Map<string, Object>} spotifyAlbumId -> companion API response.
- * Session-scoped, so a capture made mid-session shows up after the next
- * Spotify restart rather than being cached as absent forever. Only successful
- * responses are stored; a miss is retried on the next album change.
+ * Session-scoped and only holds responses that carried something to show. An
+ * album with no capture yet is not cached, so the ✓ appears on the next
+ * album change after you capture it rather than after a Spotify restart.
  */
 const albumDataCache = new Map();
 
@@ -419,10 +419,14 @@ async function fetchAlbumData(spotifyAlbumId, config) {
     }
 
     const data = await response.json();
-    if (albumDataCache.size >= ALBUM_CACHE_LIMIT) {
-      albumDataCache.clear();
+    // A 200 with nothing in it is still a miss: caching it would hide a
+    // capture made later in the same session until Spotify restarts.
+    if (data && (data.link || data.personal)) {
+      if (albumDataCache.size >= ALBUM_CACHE_LIMIT) {
+        albumDataCache.clear();
+      }
+      albumDataCache.set(spotifyAlbumId, data);
     }
-    albumDataCache.set(spotifyAlbumId, data);
     return data;
   } catch (e) {
     console.warn('RYM Extension: album lookup unavailable:', e.message);
