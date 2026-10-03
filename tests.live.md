@@ -40,6 +40,13 @@ JSON.parse(Spicetify.LocalStorage.get('rym-extension-config') || 'null')
 
 - After navigating to an album page, confirm no `RYM Extension: Could not find content container` warning in console.
 - If that warning appears, the DOM selector is broken — the element the extension targets has changed.
+- Eval: the card's `previousElementSibling` is the title row (contains the track's `/artist/` link) and its `nextElementSibling` holds the sections. Check with an album that has a Canvas video and one that doesn't — without Canvas, the cover art is an `/album/` link.
+
+## T3b: Card survives panel remounts
+
+- Switch the right sidebar to Queue (panel unmounts, card goes with it), then back to Now Playing.
+- Eval: `document.getElementById('rym-container')` is non-null and in the same position.
+- Cold start (quit and relaunch Spotify): card appears without an album change.
 
 ## T4: Copy link feature
 
