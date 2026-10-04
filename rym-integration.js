@@ -420,8 +420,11 @@ async function fetchAlbumData(spotifyAlbumId, config) {
 
     const data = await response.json();
     // A 200 with nothing in it is still a miss: caching it would hide a
-    // capture made later in the same session until Spotify restarts.
-    if (data && (data.link || data.personal)) {
+    // capture made later in the same session until Spotify restarts. Nor is a
+    // response for settings changed mid-request: the cache was cleared for them.
+    const current = loadConfig();
+    const stillCurrent = current.apiBaseUrl === config.apiBaseUrl && current.apiToken === config.apiToken;
+    if (stillCurrent && data && (data.link || data.personal)) {
       if (albumDataCache.size >= ALBUM_CACHE_LIMIT) {
         albumDataCache.clear();
       }
@@ -555,7 +558,7 @@ function showSettingsModal() {
       albumDataCache.clear();
 
       const albumInfo = getCurrentAlbumInfo();
-      if (albumInfo) {
+      if (rymCard && albumInfo) {
         injectRYMLinks(albumInfo.artist, albumInfo.album);
       }
     });
@@ -778,8 +781,8 @@ function injectRYMLinks(artist, album) {
 
   const container = createRYMContainer();
   container.className = `main-nowPlayingView-section main-nowPlayingView-rym${config.compactMode ? ' rym-compact' : ''}`;
-  // Lets an in-flight API response tell whether the card it was fired for is
-  // still the current one.
+  // Records which album the card was built for, so it can be checked from the
+  // console against Spicetify.Player.data (tests.live.md).
   if (albumInfo?.albumUri) {
     container.dataset.albumUri = albumInfo.albumUri;
   }
@@ -889,7 +892,7 @@ function injectRYMLinks(artist, album) {
   // Everything above is the card as it has always been, already built and
   // already correct. The API can only add to it, never delay it.
   if (spotifyAlbumId) {
-    upgradeFromApi(albumInfo, spotifyAlbumId, config);
+    upgradeFromApi(container, spotifyAlbumId, config);
   }
 }
 
@@ -897,27 +900,25 @@ function injectRYMLinks(artist, album) {
  * Replaces the guessed RYM URL with one a real user landed on, and shows the
  * data you captured yourself.
  *
- * Runs after the card is on screen and mutates it in place. Every exit path is
+ * Runs after the card is built and mutates it in place. Every exit path is
  * a silent return: if the API is slow, down, or has nothing stored, the card
  * simply stays as it was rendered.
  *
- * @param {AlbumInfo} albumInfo - Album the card was rendered for
+ * @param {HTMLElement} container - The card this request was fired for
  * @param {string} spotifyAlbumId - Album id, already validated
- * @param {Object} config - Configuration object
+ * @param {Object} config - Configuration object the card was built with
  * @returns {Promise<void>}
  */
-async function upgradeFromApi(albumInfo, spotifyAlbumId, config) {
+async function upgradeFromApi(container, spotifyAlbumId, config) {
   const data = await fetchAlbumData(spotifyAlbumId, config);
   if (!data) return;
 
-  // The track may have changed while the request was in flight. Both checks
-  // matter: currentAlbumUri catches a skip, and the container's own dataset
-  // catches a re-render that replaced the element this call was fired for.
-  // rymCard rather than a DOM lookup: the card may not be attached yet (panel
-  // still loading, or the sidebar showing Queue) and is upgraded all the same.
-  if (albumInfo.albumUri !== currentAlbumUri) return;
-  const container = rymCard;
-  if (!container || container.dataset.albumUri !== albumInfo.albumUri) return;
+  // Anything that happened while the request was in flight - a skip to another
+  // album, a non-album track, a settings change - replaced or cleared rymCard,
+  // and this response belongs to a card that is no longer current. Compared by
+  // identity rather than looked up in the DOM: the current card may not be
+  // attached yet (panel still loading, or the sidebar showing Queue).
+  if (container !== rymCard) return;
 
   applyPooledLink(container, data.link, spotifyAlbumId, config);
 
