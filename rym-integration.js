@@ -27,10 +27,16 @@ const RYM_BASE_URL = 'https://rateyourmusic.com';
 /** Container element ID */
 const CONTAINER_ID = 'rym-container';
 
-/** Selector for right sidebar content area */
+/** Now Playing panel root (Spotify 1.3.3+). Attribute-based so it survives class-hash changes. */
+const SELECTOR_NPV_ROOT = '[data-npv-root]';
+
+/** Scroll viewport of the Now Playing panel. Excludes the panel header, whose context link can also point at the album. */
+const SELECTOR_NPV_VIEWPORT = `${SELECTOR_NPV_ROOT} [data-overlayscrollbars-viewport]`;
+
+/** Legacy selector for the album art/info grid (Spotify < 1.3.3, relies on a Spicetify css-map class) */
 const SELECTOR_RIGHT_SIDEBAR_CONTENT = '.main-nowPlayingView-nowPlayingGrid';
 
-/** Alternative selector for right sidebar */
+/** Legacy alternative selector for right sidebar */
 const SELECTOR_RIGHT_SIDEBAR_ALT = '[data-testid="NPV_Panel_OpenDiv"]';
 
 /** LocalStorage key for extension configuration */
@@ -69,6 +75,9 @@ let tooltipElement = null;
 
 /** @type {string|null} Currently displayed album URI */
 let currentAlbumUri = null;
+
+/** @type {HTMLElement|null} Card for the current album, kept so it can be re-inserted when Spotify re-renders the panel */
+let rymCard = null;
 
 //#endregion
 
@@ -341,7 +350,7 @@ function showSettingsModal() {
         opt.classList.toggle('active', opt.querySelector('input').value === e.target.value);
       });
 
-      setTimeout(() => repositionRYMCard(), 100);
+      setTimeout(() => ensureCorrectPosition(), 100);
     });
   });
 
@@ -353,9 +362,11 @@ function showSettingsModal() {
       newConfig[e.target.name] = e.target.checked;
       saveConfig(newConfig);
 
-      // Re-render the card to apply changes
+      // Re-render the card to apply changes. Only when one is showing: without
+      // it the current track has no album (podcast, ad) and observePanel()
+      // would keep re-inserting a card with empty links.
       const albumInfo = getCurrentAlbumInfo();
-      if (albumInfo) {
+      if (rymCard && albumInfo) {
         injectRYMLinks(albumInfo.artist, albumInfo.album);
       }
     });
@@ -419,25 +430,6 @@ function showCustomModal(title, contentElement) {
   document.addEventListener('keydown', onEsc);
 }
 
-/**
- * Repositions the RYM card based on current config
- * @returns {void}
- */
-function repositionRYMCard() {
-  const existing = document.getElementById(CONTAINER_ID);
-  if (!existing) return;
-
-  const config = loadConfig();
-  const targetElement = document.querySelector(SELECTOR_RIGHT_SIDEBAR_CONTENT)
-    || document.querySelector(SELECTOR_RIGHT_SIDEBAR_ALT);
-
-  if (!targetElement) return;
-
-  // Remove and re-insert at new position
-  existing.remove();
-  insertRYMContainer(existing, config.position);
-}
-
 //#endregion
 
 //#region UI
@@ -453,98 +445,82 @@ function createRYMContainer() {
 }
 
 /**
- * Finds the scrollable content area that contains all sections
- * @returns {HTMLElement|null} The content container or null
+ * Locates the Now Playing panel elements the card is positioned against
+ * @returns {{top: HTMLElement, info: HTMLElement|null}|null} The card is the first child
+ *   of `top` for the 'top' position, otherwise it goes right after `info` (or at the end
+ *   of `top` when `info` is unknown). Null when no Now Playing panel is rendered.
  */
-function findContentContainer() {
-  // The nowPlayingGrid is inside a scrollable container that also has the other sections
+function findPanelLayout() {
   const grid = document.querySelector(SELECTOR_RIGHT_SIDEBAR_CONTENT);
   if (grid && grid.parentElement) {
-    // The parent should be the scrollable area containing all sections
-    return grid.parentElement;
+    return { top: grid.parentElement, info: grid };
   }
-  return document.querySelector(SELECTOR_RIGHT_SIDEBAR_ALT);
+
+  const viewport = document.querySelector(SELECTOR_NPV_VIEWPORT);
+  const content = viewport && viewport.firstElementChild;
+  if (content) {
+    // The title row is the ancestor of the track's artist link that sits beside
+    // the sections (about the artist, credits) rendered below it. Not the album
+    // link: without a Canvas video the cover art above is an album link too.
+    const artistLink = content.querySelector('a[href^="/artist/"]');
+    const section = content.querySelector('section');
+    let row = artistLink && section ? artistLink : null;
+    while (row && !row.parentElement.contains(section)) {
+      row = row.parentElement;
+    }
+    return { top: content, info: row };
+  }
+
+  const alt = document.querySelector(SELECTOR_RIGHT_SIDEBAR_ALT);
+  return alt ? { top: alt, info: null } : null;
 }
 
 /**
- * Inserts RYM container at the specified position using DOM manipulation
+ * Inserts (or moves) the RYM container to the specified position. A no-op when it
+ * is already there, so it is safe to call repeatedly.
  * @param {HTMLElement} container - The RYM container element
  * @param {string} position - Position setting
  * @returns {boolean} Success status
  */
 function insertRYMContainer(container, position) {
-  const grid = document.querySelector(SELECTOR_RIGHT_SIDEBAR_CONTENT);
-  const contentContainer = findContentContainer();
+  const layout = findPanelLayout();
+  if (!layout) return false;
 
-  if (!contentContainer) {
-    console.warn('RYM Extension: Could not find content container');
-    return false;
-  }
-
-  switch (position) {
-    case 'top':
-      // Insert as first child of the content container (before the grid)
-      if (contentContainer.firstChild) {
-        contentContainer.insertBefore(container, contentContainer.firstChild);
-      } else {
-        contentContainer.appendChild(container);
-      }
-      break;
-
-    case 'below-album-info':
-    default:
-      // Insert right after the grid (which contains album art/info)
-      if (grid && grid.nextSibling) {
-        contentContainer.insertBefore(container, grid.nextSibling);
-      } else if (grid) {
-        contentContainer.insertBefore(container, grid.nextSibling);
-      } else {
-        contentContainer.appendChild(container);
-      }
-      break;
+  if (position === 'top') {
+    if (layout.top.firstElementChild !== container) layout.top.prepend(container);
+  } else if (layout.info) {
+    if (layout.info.nextElementSibling !== container) layout.info.after(container);
+  } else if (container.parentElement !== layout.top) {
+    layout.top.append(container);
   }
 
   return true;
 }
 
 /**
- * Ensures RYM card is at the correct position
- * Called after a delay to handle Spotify's dynamic content loading
+ * Ensures the current album's card is in the panel at the configured position.
+ * The panel renders after the extension starts and is re-rendered (or closed)
+ * at will, so this re-inserts a dropped card as well as moving a misplaced one.
  * @returns {void}
  */
 function ensureCorrectPosition() {
-  const config = loadConfig();
-  const container = document.getElementById(CONTAINER_ID);
-  if (!container) return;
+  if (rymCard) insertRYMContainer(rymCard, loadConfig().position);
+}
 
-  const contentContainer = findContentContainer();
-  if (!contentContainer) return;
-
-  const grid = document.querySelector(SELECTOR_RIGHT_SIDEBAR_CONTENT);
-  const position = config.position;
-
-  switch (position) {
-    case 'top':
-      // Should be first child
-      if (contentContainer.firstElementChild !== container) {
-        container.remove();
-        contentContainer.insertBefore(container, contentContainer.firstChild);
-      }
-      break;
-
-    case 'below-album-info':
-    default:
-      // Should be right after the grid
-      if (grid && grid.nextElementSibling !== container) {
-        container.remove();
-        if (grid.nextSibling) {
-          contentContainer.insertBefore(container, grid.nextSibling);
-        } else {
-          contentContainer.appendChild(container);
-        }
-      }
-      break;
-  }
+/**
+ * Runs ensureCorrectPosition() after DOM changes, at most once per frame
+ * @returns {void}
+ */
+function observePanel() {
+  let scheduled = false;
+  new MutationObserver(() => {
+    if (scheduled) return;
+    scheduled = true;
+    requestAnimationFrame(() => {
+      scheduled = false;
+      ensureCorrectPosition();
+    });
+  }).observe(document.body, { childList: true, subtree: true });
 }
 
 /**
@@ -554,17 +530,6 @@ function ensureCorrectPosition() {
  * @returns {void}
  */
 function injectRYMLinks(artist, album) {
-  let targetElement = document.querySelector(SELECTOR_RIGHT_SIDEBAR_CONTENT);
-
-  if (!targetElement) {
-    targetElement = document.querySelector(SELECTOR_RIGHT_SIDEBAR_ALT);
-  }
-
-  if (!targetElement) {
-    console.warn('RYM Extension: Could not find target element for UI injection');
-    return;
-  }
-
   const existing = document.getElementById(CONTAINER_ID);
   if (existing) {
     existing.remove();
@@ -674,8 +639,17 @@ function injectRYMLinks(artist, album) {
 
   console.log('RYM Extension: Detected release type:', releaseType, 'for', album);
 
-  // Use config-based positioning
+  rymCard = container;
   insertRYMContainer(container, config.position);
+
+  // A closed or still-loading panel is expected; observePanel() inserts the
+  // card once it renders. An open panel the card never lands in means
+  // Spotify changed its DOM.
+  setTimeout(() => {
+    if (rymCard === container && !container.isConnected && document.querySelector(SELECTOR_NPV_ROOT)) {
+      console.warn('RYM Extension: Could not find content container');
+    }
+  }, 3000);
 }
 
 /**
@@ -683,9 +657,9 @@ function injectRYMLinks(artist, album) {
  * @returns {void}
  */
 function removeRYMUI() {
-  const existing = document.getElementById(CONTAINER_ID);
-  if (existing) {
-    existing.remove();
+  if (rymCard) {
+    rymCard.remove();
+    rymCard = null;
   }
 }
 
@@ -702,6 +676,7 @@ function handleAlbumChange() {
 
   if (!albumInfo || !albumInfo.artist || !albumInfo.album) {
     removeRYMUI();
+    currentAlbumUri = null;
     return;
   }
 
@@ -742,7 +717,9 @@ function injectStyles() {
 .main-nowPlayingView-section.main-nowPlayingView-rym {
   margin-top: 24px;
   padding: 16px;
-  background-color: rgba(255, 255, 255, 0.03);
+  /* Opaque base: in Spotify 1.3.3+ the card overlaps the bottom of the Canvas video */
+  background: linear-gradient(rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.03)),
+    var(--background-base, var(--spice-main, #121212));
   border-radius: 8px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   animation: rymFadeIn 0.3s ease-out;
@@ -1247,14 +1224,10 @@ function injectStyles() {
  * @returns {void}
  */
 function initializeExtension() {
-  Spicetify.Player.addEventListener('songchange', () => {
-    handleAlbumChange();
-    // Quick position check after content loads
-    setTimeout(ensureCorrectPosition, 300);
-  });
+  Spicetify.Player.addEventListener('songchange', handleAlbumChange);
 
+  observePanel();
   handleAlbumChange();
-  setTimeout(ensureCorrectPosition, 300);
 
   console.log('RYM Extension: Initialized successfully');
 }
