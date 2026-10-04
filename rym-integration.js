@@ -362,9 +362,11 @@ function showSettingsModal() {
       newConfig[e.target.name] = e.target.checked;
       saveConfig(newConfig);
 
-      // Re-render the card to apply changes
+      // Re-render the card to apply changes. Only when one is showing: without
+      // it the current track has no album (podcast, ad) and observePanel()
+      // would keep re-inserting a card with empty links.
       const albumInfo = getCurrentAlbumInfo();
-      if (albumInfo) {
+      if (rymCard && albumInfo) {
         injectRYMLinks(albumInfo.artist, albumInfo.album);
       }
     });
