@@ -103,7 +103,7 @@ Click the gear icon (⚙️) in the RYM card header to open settings.
 
 By default this extension makes **no network requests of any kind**. It builds RYM URLs from the album metadata Spotify already gave it and renders links. Nothing leaves your machine. If that is what you want, skip this section — the fields are blank out of the box and there is nothing to turn off.
 
-Filling them in connects the extension to [spicetify-music-api](https://github.com/yusufaf/spicetify-music-api), your own AWS deployment, which adds two things:
+Filling them in connects the extension to a companion API that you host yourself on AWS, which adds two things:
 
 **Links that actually resolve.** RYM disambiguates releases with suffixes — Björk's *Homogenic* lives at `/homogenic-17/`, Jay-Z's *The Blueprint* at `/the-blueprint.p/`. Nothing in Spotify's metadata can tell you that suffix exists, so no amount of slug logic will ever produce it. The only way to know a URL is right is for somebody to have landed on it. Once a page has been captured, the card links straight to it and shows a `✓`.
 
@@ -121,7 +121,7 @@ The card renders from local metadata first and is on screen before any request i
 
 ### Data sharing
 
-Album-to-URL mappings are pooled across users of a shared deployment, because a link is factual and pooling is what makes 404s get fixed once rather than repeatedly. **Ratings, genres and descriptors are private to whoever captured them** and are never served to another user — enforced by the server's key layout, not by a filter. See the [spicetify-music-api README](https://github.com/yusufaf/spicetify-music-api).
+Album-to-URL mappings are pooled across users of a shared deployment, because a link is factual and pooling is what makes 404s get fixed once rather than repeatedly. **Ratings, genres and descriptors are private to whoever captured them** and are never served to another user — enforced by the server's key layout, not by a filter.
 
 ## Screenshots
 
