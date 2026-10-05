@@ -1,5 +1,9 @@
 # RateYourMusic Spicetify Extension
 
+<!-- site:skip-start -->
+**Documentation:** https://spicetify.yusufaf.dev/rym/
+<!-- site:skip-end -->
+
 Quick access to RateYourMusic album pages directly from Spotify.
 
 ![Preview](preview.png)
