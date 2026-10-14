@@ -6,7 +6,7 @@
 
 Quick access to RateYourMusic album pages directly from Spotify.
 
-![Preview](preview.png)
+![RYM card in the Now Playing sidebar under the album art, with album, artist and search links](now-playing.png)
 
 ## Features
 
@@ -38,38 +38,30 @@ This generates accurate RYM URLs like:
 
 If the direct link doesn't match (edge cases happen), use the fallback "Search RYM" link.
 
-## Installation
+## Install
 
-### Prerequisites
+Requires [Spicetify](https://spicetify.app/docs/getting-started), installed and applied at least once.
 
-[Spicetify](https://spicetify.app/) must be installed and working.
+### From Spicetify Marketplace
 
-### Steps
+1. In Spotify, open [Marketplace](https://github.com/spicetify/marketplace) (the shopping-cart icon at the top left) and stay on the **Extensions** tab.
+2. Type `RateYourMusic` into **Search Extensions…**.
+3. If no card shows up, click **Load more** below the results until it does. Marketplace only searches the extensions it has already loaded, 100 repositories at a time, so this one usually isn't there on the first try. Changing **Sort by** doesn't help, since it only reorders what's loaded.
+4. Hover the **RateYourMusic Integration** card, click its download button, then click **Reload now**.
 
-1. Clone or download this repository:
-   ```bash
-   git clone https://github.com/yusufaf/spicetify-rym.git
-   ```
+### Manually
 
-2. Copy the extension file to your Spicetify extensions folder:
+1. Download [`rym-integration.js`](https://raw.githubusercontent.com/yusufaf/spicetify-rym/main/rym-integration.js) (right-click → **Save link as…**) into your Spicetify `Extensions` folder:
+   - Windows: `%APPDATA%\spicetify\Extensions`
+   - macOS / Linux: `~/.config/spicetify/Extensions`
+2. Enable it and apply:
 
-   **Windows:**
-   ```bash
-   copy spicetify-rym\rym-integration.js "%APPDATA%\spicetify\Extensions\rym-integration.js"
-   ```
-
-   **macOS/Linux:**
-   ```bash
-   cp spicetify-rym/rym-integration.js ~/.config/spicetify/Extensions/rym-integration.js
-   ```
-
-3. Enable the extension:
    ```bash
    spicetify config extensions rym-integration.js
    spicetify apply
    ```
 
-4. Reload Spotify - the RYM section will appear in the right sidebar
+The RYM card appears in the Now Playing view in the right sidebar.
 
 ## Usage
 
