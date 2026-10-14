@@ -56,6 +56,10 @@ const RYM_VERSION = '1.1.0';
 /** GitHub repo slug, used to build the "report an issue" link in the settings modal footer */
 const RYM_GITHUB_REPO = 'yusufaf/spicetify-rym';
 
+/** Docs page for this extension and the hub listing the others, linked from the settings modal footer */
+const RYM_DOCS_URL = 'https://spicetify.yusufaf.dev/rym/';
+const RYM_HUB_URL = 'https://spicetify.yusufaf.dev/';
+
 /**
  * Marker appended to outgoing album links when the companion API is configured.
  * The capture userscript reads `sid` off the URL, which ties a RYM page back to
@@ -634,9 +638,13 @@ function showCustomModal(title, contentElement) {
   footer.className = 'rym-modal-footer';
   footer.innerHTML = `
     <span class="rym-modal-version">v${RYM_VERSION}</span>
-    <a class="rym-modal-github-link" href="https://github.com/${RYM_GITHUB_REPO}/issues/new" target="_blank" rel="noopener noreferrer" title="Report an issue on GitHub">
-      <svg viewBox="0 0 16 16" class="rym-modal-github-icon"><path d="${GITHUB_SVG_PATH}"/></svg>
-    </a>
+    <div class="rym-modal-footer-links">
+      <a class="rym-modal-footer-link" href="${RYM_DOCS_URL}" target="_blank" rel="noopener noreferrer" title="RateYourMusic Integration documentation">Docs</a>
+      <a class="rym-modal-footer-link" href="${RYM_HUB_URL}" target="_blank" rel="noopener noreferrer" title="More Spicetify extensions by yusufaf">More extensions</a>
+      <a class="rym-modal-github-link" href="https://github.com/${RYM_GITHUB_REPO}/issues/new" target="_blank" rel="noopener noreferrer" title="Report an issue on GitHub">
+        <svg viewBox="0 0 16 16" class="rym-modal-github-icon"><path d="${GITHUB_SVG_PATH}"/></svg>
+      </a>
+    </div>
   `;
 
   modal.appendChild(header);
@@ -1411,6 +1419,23 @@ function injectStyles() {
 .rym-modal-version {
   color: var(--spice-subtext, #b3b3b3);
   font-size: 0.75rem;
+}
+
+.rym-modal-footer-links {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.rym-modal-footer .rym-modal-footer-link {
+  color: var(--spice-subtext, #b3b3b3);
+  font-size: 0.75rem;
+  text-decoration: none;
+}
+
+.rym-modal-footer .rym-modal-footer-link:hover {
+  color: var(--spice-text, #fff);
+  text-decoration: underline;
 }
 
 .rym-modal-github-link {
