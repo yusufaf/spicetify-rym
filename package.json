@@ -1,6 +1,6 @@
 {
   "name": "spicetify-rym",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Quick access to RateYourMusic album and artist pages directly from Spotify's Now Playing sidebar",
   "main": "rym-integration.js",
   "scripts": {
