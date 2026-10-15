@@ -50,12 +50,16 @@ the card ends at y≈765.
 |---|---|---|---|
 | `now-playing.png` | panel header, cover, title, card | `--rect 1052,64,380,717 --scale 2` | README hero |
 | `preview.png` | title and card | `--rect 1052,393,380,380 --scale 2` | Marketplace card |
+| `settings.png` | RYM Settings modal, opened from the profile menu (**RYM**) | `viewport 1440 1100`, then `--selector ".rym-modal" --scale 2` | README Screenshots table |
 
 ## Framing notes
 
 - Stop at the bottom of the card. Below it are the Lyrics, About the artist and Next in
   queue sections, and the queue is personal.
 - The main view is not part of any shot: album pages show green checks for liked tracks.
+- The settings modal is capped at `80vh`. At 1000px its body scrolls and cuts off the last
+  toggle; at 1100px the whole modal fits. Verify the footer before capturing:
+  `verify ".rym-modal-footer" --within ".rym-modal" --text "Docs"`.
 
 ## Restore
 

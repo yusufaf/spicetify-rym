@@ -120,9 +120,9 @@ Album-to-URL mappings are pooled across users of a shared deployment, because a 
 
 ## Screenshots
 
-| Tooltip | Compact Mode |
-|---------|--------------|
-| ![Tooltip](tooltip.png) | ![Compact](compact-mode.png) |
+| Settings | Tooltip | Compact Mode |
+|----------|---------|--------------|
+| ![RYM Settings modal with default options and the Docs, More extensions and GitHub links in its footer](settings.png) | ![Tooltip](tooltip.png) | ![Compact](compact-mode.png) |
 
 ## Troubleshooting
 
