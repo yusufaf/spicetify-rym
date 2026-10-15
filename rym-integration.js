@@ -56,6 +56,9 @@ const RYM_VERSION = '1.1.0';
 /** GitHub repo slug, used to build the "report an issue" link in the settings modal footer */
 const RYM_GITHUB_REPO = 'yusufaf/spicetify-rym';
 
+const RYM_HUB_URL = 'https://spicetify.yusufaf.dev/';
+const RYM_DOCS_URL = `${RYM_HUB_URL}rym/`;
+
 /**
  * Marker appended to outgoing album links when the companion API is configured.
  * The capture userscript reads `sid` off the URL, which ties a RYM page back to
@@ -634,9 +637,13 @@ function showCustomModal(title, contentElement) {
   footer.className = 'rym-modal-footer';
   footer.innerHTML = `
     <span class="rym-modal-version">v${RYM_VERSION}</span>
-    <a class="rym-modal-github-link" href="https://github.com/${RYM_GITHUB_REPO}/issues/new" target="_blank" rel="noopener noreferrer" title="Report an issue on GitHub">
-      <svg viewBox="0 0 16 16" class="rym-modal-github-icon"><path d="${GITHUB_SVG_PATH}"/></svg>
-    </a>
+    <div class="rym-modal-footer-links">
+      <a href="${RYM_DOCS_URL}" target="_blank" rel="noopener noreferrer" title="RateYourMusic Integration documentation">Docs</a>
+      <a href="${RYM_HUB_URL}" target="_blank" rel="noopener noreferrer" title="More Spicetify extensions by yusufaf">More extensions</a>
+      <a class="rym-modal-github-link" href="https://github.com/${RYM_GITHUB_REPO}/issues/new" target="_blank" rel="noopener noreferrer" title="Report an issue on GitHub" aria-label="Report an issue on GitHub">
+        <svg viewBox="0 0 16 16" class="rym-modal-github-icon" aria-hidden="true"><path d="${GITHUB_SVG_PATH}"/></svg>
+      </a>
+    </div>
   `;
 
   modal.appendChild(header);
@@ -1413,20 +1420,37 @@ function injectStyles() {
   font-size: 0.75rem;
 }
 
-.rym-modal-github-link {
+.rym-modal-footer-links {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  color: var(--spice-subtext, #b3b3b3);
+  gap: 12px;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
-.rym-modal-github-link:hover {
+.rym-modal-footer a[href] {
+  display: inline-flex;
+  align-items: center;
+  color: var(--spice-subtext, #b3b3b3);
+  font-size: 0.75rem;
+  text-decoration: none;
+}
+
+.rym-modal-footer a[href]:hover {
   color: var(--spice-text, #fff);
+  text-decoration: underline;
+}
+
+.rym-modal-footer a[href]:focus-visible {
+  outline: 2px solid var(--spice-text, #fff);
+  outline-offset: 2px;
+  border-radius: 2px;
 }
 
 .rym-modal-github-icon {
   width: 16px;
   height: 16px;
+  fill: currentColor;
 }
 
 /* Settings modal */
