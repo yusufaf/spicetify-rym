@@ -50,12 +50,25 @@ the card ends at y≈765.
 |---|---|---|---|
 | `now-playing.png` | panel header, cover, title, card | `--rect 1052,64,380,717 --scale 2` | README hero |
 | `preview.png` | title and card | `--rect 1052,393,380,380 --scale 2` | Marketplace card |
+| `settings.png` | RYM Settings modal, opened from the profile menu (**RYM**) | `viewport 1440 1100`, then `--selector ".rym-modal" --scale 1` (1x, like `tooltip.png` and `compact-mode.png`, so the table row stays a sensible height) | README Screenshots table |
 
 ## Framing notes
 
 - Stop at the bottom of the card. Below it are the Lyrics, About the artist and Next in
   queue sections, and the queue is personal.
 - The main view is not part of any shot: album pages show green checks for liked tracks.
+- The settings modal is capped at `80vh`. At 1000px its body scrolls and cuts off the last
+  toggle; at 1100px the whole modal fits, with about 19px to spare. If a setting is added,
+  grow the viewport until it fits again. Before capturing, verify the footer and check
+  that the body doesn't scroll:
+
+  ```
+  node shoot.mjs verify ".rym-modal-footer" --within ".rym-modal" --text "Docs"
+  node shoot.mjs wait "(b => b.scrollHeight <= b.clientHeight)(document.querySelector('.rym-modal-body'))" 5
+  ```
+
+- Shoot `settings.png` last, or run `node shoot.mjs viewport 1440 1000` again before the
+  rect shots: their rects are measured at 1000px.
 
 ## Restore
 
