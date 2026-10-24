@@ -107,6 +107,9 @@ let currentAlbumUri = null;
 /** @type {HTMLElement|null} Card for the current album, kept so it can be re-inserted when Spotify re-renders the panel */
 let rymCard = null;
 
+/** @type {string|null} Why the last companion API lookup failed, cleared by the next one that succeeds */
+let lastApiError = null;
+
 /**
  * @type {Map<string, Object>} spotifyAlbumId -> companion API response.
  * Session-scoped and only holds responses that carried something to show. An
@@ -418,8 +421,10 @@ async function fetchAlbumData(spotifyAlbumId, config) {
 
     if (!response.ok) {
       console.warn('RYM Extension: album lookup returned', response.status);
+      lastApiError = `album lookup returned ${response.status}`;
       return null;
     }
+    lastApiError = null;
 
     const data = await response.json();
     // A 200 with nothing in it is still a miss: caching it would hide a
@@ -436,6 +441,7 @@ async function fetchAlbumData(spotifyAlbumId, config) {
     return data;
   } catch (e) {
     console.warn('RYM Extension: album lookup unavailable:', e.message);
+    lastApiError = `album lookup unavailable: ${e.message}`;
     return null;
   } finally {
     clearTimeout(timer);
@@ -1741,6 +1747,30 @@ function initializeExtension() {
   console.log('RYM Extension: Initialized successfully');
 }
 
+/**
+ * Exposes the extension's state to spicetify-compat's `check`
+ * (https://github.com/yusufaf/spicetify-compat#health-hook-contract).
+ * The card only exists while the Now Playing panel is open on an album track,
+ * so the anchors are 0 on any route when the sidebar is closed or on Queue.
+ * @returns {void}
+ */
+function registerHealthHook() {
+  (window.__spicetifyHealth ??= {})['rym-integration'] = () => {
+    const errors = lastApiError ? [lastApiError] : [];
+    if (rymCard && !rymCard.isConnected && document.querySelector(SELECTOR_NPV_ROOT)) {
+      errors.push('Could not find content container');
+    }
+    return {
+      ready: true,
+      anchors: {
+        card: document.querySelectorAll(`#${CONTAINER_ID}`).length,
+        links: document.querySelectorAll(`#${CONTAINER_ID} .rym-link-item a`).length
+      },
+      errors
+    };
+  };
+}
+
 //#endregion
 
 //#region Bootstrap
@@ -1754,6 +1784,7 @@ function initializeExtension() {
   injectStyles();
   registerMenuItem();
   initializeExtension();
+  registerHealthHook();
 })();
 
 //#endregion
