@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0](https://github.com/yusufaf/spicetify-rym/compare/v1.1.0...v1.2.0) (2026-10-24)
+
+
+### Features
+
+* expose a health check for spicetify-compat ([#11](https://github.com/yusufaf/spicetify-rym/issues/11)) ([d324ef3](https://github.com/yusufaf/spicetify-rym/commit/d324ef38eb6e9e3ab72bce4b387e348011cc5101))
+* link the docs from settings and spell out Marketplace install ([#7](https://github.com/yusufaf/spicetify-rym/issues/7)) ([016aa7f](https://github.com/yusufaf/spicetify-rym/commit/016aa7f8d9775588fc9d37afd75c817e121ab3ad))
+
 ## [1.1.0](https://github.com/yusufaf/spicetify-rym/compare/v1.0.2...v1.1.0) (2026-10-04)
 
 
