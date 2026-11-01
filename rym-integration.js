@@ -7,11 +7,11 @@
 
 (function () {
 // Marketplace and the Extensions folder can both load this file; only the first copy runs.
-// Node (unit tests) has no window, and needs the exports at the bottom.
-if (typeof window !== "undefined") {
-  if (window.__rymActive) return;
-  window.__rymActive = true;
+if (window.__rymActive) {
+  console.info('RYM Extension: Another copy is already running; skipping this one.');
+  return;
 }
+window.__rymActive = true;
 
 //#region Type Definitions
 
